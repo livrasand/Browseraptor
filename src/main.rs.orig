@@ -1,0 +1,334 @@
+mod app;
+mod browser;
+mod config;
+mod default_browser;
+mod hotkey;
+mod plugin;
+mod single_instance;
+mod ui;
+
+use std::process;
+
+#[cfg(target_os = "macos")]
+use objc2::MainThreadMarker;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
+
+use clap::{Parser, Subcommand};
+use gpui::prelude::*;
+use tracing_subscriber::EnvFilter;
+
+use crate::app::{AppCommand, AppState};
+use crate::browser::Browser;
+
+#[derive(Parser)]
+#[command(name = "browseraptor", version, about)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    Open {
+        url: String,
+        #[arg(long)]
+        no_ui: bool,
+    },
+    List,
+    Settings,
+    #[command(subcommand)]
+    Config(ConfigCommands),
+}
+
+#[derive(Subcommand)]
+enum ConfigCommands {
+    Show,
+    Edit,
+}
+
+fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
+
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Commands::Open { url, no_ui }) => cmd_open(&url, no_ui),
+        Some(Commands::List) => cmd_list(),
+        Some(Commands::Settings) => cmd_settings(),
+        Some(Commands::Config(ConfigCommands::Show)) => cmd_config_show(),
+        Some(Commands::Config(ConfigCommands::Edit)) => cmd_config_edit(),
+        None => {
+            // Daemon mode: try to connect to existing instance first
+            match single_instance::try_send_to_existing("show-selector") {
+                Ok(true) => {
+                    // Command sent to existing instance, exit
+                    tracing::info!("Existing instance found, exiting");
+                    process::exit(0);
+                }
+                Ok(false) => {
+                    // No existing instance, start daemon
+                    run_daemon();
+                }
+                Err(e) => {
+                    tracing::error!("Error checking for existing instance: {}", e);
+                    run_daemon();
+                }
+            }
+        }
+    }
+}
+
+fn run_daemon() {
+    tracing::info!("Starting Browseraptor daemon…");
+
+    let state = AppState::new();
+    let tx = state.command_tx.clone();
+    let rx = state.command_rx;
+
+    let browsers = state.installed_browsers.clone();
+    let config = state.config.clone();
+    if browsers.is_empty() {
+        tracing::warn!("No browsers detected");
+    } else {
+        tracing::info!(
+            "Detected browsers: {}",
+            browsers.iter().map(|b| b.name()).collect::<Vec<_>>().join(", ")
+        );
+    }
+
+    gpui::Application::new().run(move |cx: &mut gpui::App| {
+        hotkey::start_hotkey_listener(tx.clone());
+        tracing::info!("Hotkey listener started");
+
+        // Start single instance listener
+        single_instance::start_listener(tx.clone());
+        tracing::info!("Single instance listener started");
+
+        // Set activation policy based on dev mode (macOS only)
+        #[cfg(target_os = "macos")]
+        {
+            let mtm = MainThreadMarker::new().expect("must be on main thread");
+            let app = NSApplication::sharedApplication(mtm);
+            
+            // Show dock icon in dev mode, hide in production
+            let is_dev = std::env::var("BROWSERAPTOR_DEV").is_ok() || cfg!(debug_assertions);
+            if is_dev {
+                app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+                tracing::info!("Dock icon visible (dev mode)");
+            } else {
+                app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+                tracing::info!("Dock icon hidden (production mode)");
+            }
+        }
+        
+        #[cfg(not(target_os = "macos"))]
+        {
+            tracing::info!("Dock icon hiding is macOS-only, window will be visible on this platform");
+        }
+
+        // Check if Browseraptor is the default browser
+        let is_default = default_browser::is_browseraptor_default();
+        tracing::info!("Browseraptor is default browser: {}", is_default);
+        
+        // Show prompt if not default
+        if !is_default {
+            tracing::info!("Showing default browser prompt");
+            cx.activate(true);
+            ui::default_prompt::DefaultBrowserPrompt::show(cx);
+        }
+
+        let browsers_for_selector = browsers.clone();
+        let _tx_selector = tx.clone();
+
+        let cx_clone = cx.to_async();
+        
+        std::thread::spawn(move || {
+            while let Ok(cmd) = rx.recv() {
+                // To safely send the command into the UI thread without blocking the executor
+                // we have to push it through a channel that isn't blocking the AsyncApp.
+                // However, since we can't send `cx` between threads, we need a way to schedule
+                // an update on the GPUI run loop. GPUI doesn't provide an easy way to `Send` AsyncApp
+                // across threads. We'll use a channel to communicate commands to a periodic UI timer instead.
+            }
+        });
+
+        let bounds = gpui::Bounds::centered(
+            None,
+            gpui::size(gpui::px(1.0), gpui::px(1.0)),
+            cx,
+        );
+        let _ = cx.open_window(
+            gpui::WindowOptions {
+                window_bounds: Some(gpui::WindowBounds::Windowed(bounds)),
+                show: false,
+                ..Default::default()
+            },
+            |_, cx| cx.new(|_| HiddenView),
+        );
+    });
+}
+
+struct HiddenView;
+impl gpui::Render for HiddenView {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        _cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        gpui::div()
+    }
+}
+
+#[allow(dead_code)]
+struct SelectorPlaceholder(String, Vec<Browser>);
+impl gpui::Render for SelectorPlaceholder {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        _cx: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        gpui::div().child(
+            gpui::div()
+                .child(format!("Open with… {}", self.0)),
+        )
+    }
+}
+
+fn find_browser(name: &str, browsers: &[Browser]) -> Option<Browser> {
+    browsers
+        .iter()
+        .find(|b| b.name().eq_ignore_ascii_case(name))
+        .cloned()
+}
+
+// ── CLI commands ──
+
+fn cmd_open(url: &str, no_ui: bool) {
+    let parsed = match url::Url::parse(url) {
+        Ok(u) => u,
+        Err(_) => {
+            let with_scheme = format!("https://{}", url);
+            match url::Url::parse(&with_scheme) {
+                Ok(u) => u,
+                Err(e) => {
+                    tracing::error!("Invalid URL: {} ({})", url, e);
+                    process::exit(1);
+                }
+            }
+        }
+    };
+
+    let url_str = parsed.as_str().to_string();
+    let domain = parsed.host_str().map(|h| h.to_string()).unwrap_or_default();
+    tracing::info!("Opening: {}", url_str);
+
+    let installed = browser::detector::detect_installed();
+    let config = config::Config::load().unwrap_or_default();
+
+    if !no_ui {
+        if let Some(remembered) = config
+            .remembered
+            .iter()
+            .find(|r| r.domain == domain || domain.ends_with(&format!(".{}", r.domain)))
+        {
+            tracing::info!("Remembered: {} → {}", remembered.domain, remembered.browser.name());
+            if let Err(e) = browser::launcher::launch(&remembered.browser, &url_str) {
+                tracing::error!("Launch failed: {}", e);
+                process::exit(1);
+            }
+            return;
+        }
+
+        if let Some(rule) = config::rules::evaluate_rules(&config.rules, &parsed) {
+            tracing::info!("Rule matched: {} → {}", rule.domain.as_deref().unwrap_or("*"), rule.browser.name());
+            if let Err(e) = browser::launcher::launch(&rule.browser, &url_str) {
+                tracing::error!("Launch failed: {}", e);
+                process::exit(1);
+            }
+            return;
+        }
+
+        if let Some(default) = &config.default_browser {
+            if !config.always_show_selector {
+                tracing::info!("Default: {}", default.name());
+                if let Err(e) = browser::launcher::launch(default, &url_str) {
+                    tracing::error!("Launch failed: {}", e);
+                    process::exit(1);
+                }
+                return;
+            }
+        }
+    }
+
+    match ui::selector::run_selector_standalone(&url_str, &installed) {
+        Some(ui::selector::SelectorResult::Selected { browser, .. }) => {
+            tracing::info!("Selected: {}", browser.name());
+            if let Err(e) = browser::launcher::launch(&browser, &url_str) {
+                tracing::error!("Launch failed: {}", e);
+                process::exit(1);
+            }
+        }
+        Some(ui::selector::SelectorResult::Cancelled) => {
+            tracing::info!("Cancelled");
+        }
+        None => {
+            tracing::info!("No selection");
+        }
+    }
+}
+
+fn cmd_list() {
+    println!("Installed browsers:");
+    for b in browser::detector::detect_installed() {
+        println!("  ✓ {}", b.name());
+    }
+}
+
+fn cmd_settings() {
+    let browsers = browser::detector::detect_installed();
+    let config = config::Config::load().unwrap_or_default();
+    ui::settings::SettingsWindow::run(browsers, config);
+}
+
+fn cmd_config_show() {
+    match config::Config::load() {
+        Ok(c) => println!("{}", serde_yaml::to_string(&c).unwrap()),
+        Err(e) => {
+            tracing::error!("Failed to load config: {}", e);
+            process::exit(1);
+        }
+    }
+}
+
+fn cmd_config_edit() {
+    let config_path = directories::ProjectDirs::from("com", "browseraptor", "browseraptor")
+        .map(|d| d.config_dir().join("config.yaml"))
+        .expect("cannot determine config directory");
+
+    if !config_path.exists() {
+        if let Some(parent) = config_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&config_path, serde_yaml::to_string(&config::Config::default()).unwrap());
+    }
+
+    let editor = std::env::var("EDITOR")
+        .or_else(|_| std::env::var("VISUAL"))
+        .unwrap_or_else(|_| "vim".to_string());
+
+    let status = std::process::Command::new(&editor)
+        .arg(&config_path)
+        .status()
+        .expect("failed to launch editor");
+
+    if !status.success() {
+        process::exit(1);
+    }
+}
+

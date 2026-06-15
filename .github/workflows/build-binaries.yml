@@ -1,0 +1,176 @@
+name: Build Binaries
+
+on:
+  workflow_call:
+    inputs:
+      checkout-latest:
+        description: "Si true, fuerza el checkout de la rama indicada en `branch`"
+        type: boolean
+        default: false
+      branch:
+        description: "Rama o ref a chequear cuando `checkout-latest` es true"
+        type: string
+        default: "master"
+      publish-release:
+        description: "Si true, crea un Release en GitHub con los artefactos y sus checksums SHA256"
+        type: boolean
+        default: false
+      tag:
+        description: "Tag del release (ej: v0.2.0). Solo se usa si publish-release es true. Si se omite, se toma de Cargo.toml"
+        type: string
+        default: ""
+    secrets:
+      # Secrets opcionales — configúralos en el workflow que invoque si vas a firmar/notarizar
+      MAC_CERTIFICATE_BASE64:
+        required: false
+      MAC_CERTIFICATE_PASSWORD:
+        required: false
+      KEYCHAIN_PASSWORD:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APPLE_APP_SPECIFIC_PASSWORD:
+        required: false
+      SENTRY_AUTH_TOKEN:
+        required: false
+      TEST_VERSION:
+        required: false
+      GITHUB_TOKEN:
+        required: false
+
+jobs:
+  build:
+    name: Build distributables (Windows / macOS / Linux)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout (branch explícita)
+        if: ${{ inputs.checkout-latest == true }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.branch }}
+
+      - name: Checkout (default)
+        if: ${{ inputs.checkout-latest == false }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Build (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          set -eux
+          # Opcional: instalar dependencias del sistema si tu crate las necesita
+          # sudo apt-get update
+          # sudo apt-get install -y libgtk-3-dev libssl-dev
+
+          cargo build --release --locked
+
+          mkdir -p dist
+          # Copiar binario a la raíz de dist como archivo suelto
+          cp target/release/browseraptor dist/browseraptor
+          if [ -d assets ]; then cp -R assets dist/ || true; fi
+
+          # Empaquetar también una copia comprimida
+          tar -C dist -czf dist/Browseraptor-linux.tar.gz .
+
+      - name: Build (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: powershell
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          cargo build --release --locked
+
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $exe = Join-Path -Path "target\release" -ChildPath "browseraptor.exe"
+          Copy-Item -Path $exe -Destination (Join-Path -Path "dist" -ChildPath "browseraptor.exe") -Force
+          if (Test-Path -Path "assets") { Copy-Item -Path "assets\*" -Destination "dist" -Recurse -Force -ErrorAction SilentlyContinue }
+
+          $zipPath = Join-Path -Path "dist" -ChildPath "Browseraptor-windows.zip"
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          Compress-Archive -Path (Join-Path -Path "dist" -ChildPath "*") -DestinationPath $zipPath -Force
+
+      - name: Build (macOS)
+        if: ${{ matrix.os == 'macos-latest' }}
+        run: |
+          set -eux
+          chmod +x ./bundle_macos.sh || true
+          ./bundle_macos.sh
+
+          # Empaquetar .app en zip para subir como artifact
+          mkdir -p dist
+          if [ -d "dist/Browseraptor.app" ]; then
+            ditto -c -k --sequesterRsrc --keepParent "dist/Browseraptor.app" "dist/Browseraptor-macos.zip"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: browseraptor-${{ matrix.os == 'macos-latest' && 'macos' || matrix.os == 'windows-latest' && 'windows' || 'linux' }}-${{ github.sha }}
+          path: |
+            dist/Browseraptor-macos.zip
+            dist/Browseraptor-linux.tar.gz
+            dist/browseraptor
+            dist/Browseraptor-windows.zip
+            dist/browseraptor.exe
+            dist/Browseraptor.app
+
+  release:
+    name: Publish Release
+    if: ${{ inputs.publish-release }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets and checksums
+        run: |
+          set -eux
+          VERSION="${{ inputs.tag }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="v$(grep '^version = ' Cargo.toml | head -1 | cut -d '"' -f2)"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+          mkdir -p release
+          find artifacts -type f -exec cp {} release/ \;
+          cd release
+          echo ""
+          echo "=== SHA256 checksums ==="
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create Release and upload assets
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          gh release create "$VERSION" \
+            --title "Release $VERSION" \
+            --generate-notes \
+            --repo "$GITHUB_REPOSITORY" \
+            release/*
