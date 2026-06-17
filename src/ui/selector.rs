@@ -1,6 +1,9 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
+
+#[cfg(target_os = "macos")]
+use std::collections::HashMap;
+#[cfg(target_os = "macos")]
 use std::sync::{Arc, Mutex, OnceLock};
 
 use gpui::{
@@ -14,6 +17,7 @@ use crate::AppAssets;
 
 /// Cache of rendered browser app icons (keyed by .app path) to avoid expensive
 /// ObjC calls and PNG decoding on every render.
+#[cfg(target_os = "macos")]
 static ICON_CACHE: OnceLock<Mutex<HashMap<String, Arc<gpui::RenderImage>>>> = OnceLock::new();
 
 #[derive(Debug, Clone)]
@@ -300,19 +304,22 @@ pub struct DaemonSelector {
     repo_input_focus: u8,
 }
 
+#[allow(dead_code)]
 impl DaemonSelector {
     pub fn new(
         url: String,
         domain: String,
-        browsers: Vec<Browser>,
+        _browsers: Vec<Browser>,
         command_tx: std::sync::mpsc::Sender<crate::app::AppCommand>,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let items = browsers
-            .into_iter()
-            .map(|b| (gpui::SharedString::from(b.name().to_owned()), b))
-            .collect();
         let config = crate::config::Config::load().unwrap_or_default();
+        // Only use manually added browsers from config (no auto-detection).
+        let items: Vec<(gpui::SharedString, Browser)> = config
+            .custom_browsers
+            .iter()
+            .map(|b| (gpui::SharedString::from(b.name().to_owned()), b.clone()))
+            .collect();
         Self {
             url: url.into(),
             domain: domain.into(),
@@ -339,19 +346,19 @@ impl DaemonSelector {
 
     fn shortcut_char(browser: &Browser) -> &'static str {
         match browser {
-            Browser::Chrome => "C",
-            Browser::Firefox => "F",
-            Browser::Brave => "B",
-            Browser::Edge => "E",
-            Browser::Safari => "S",
-            Browser::Arc => "A",
-            Browser::Orion => "O",
+            Browser::Chrome { .. } => "C",
+            Browser::Firefox { .. } => "F",
+            Browser::Brave { .. } => "B",
+            Browser::Edge { .. } => "E",
+            Browser::Safari { .. } => "S",
+            Browser::Arc { .. } => "A",
+            Browser::Orion { .. } => "O",
             Browser::Other { .. } => "?",
         }
     }
 
     fn render_settings_panel(
-        &self,
+        &mut self,
         text: gpui::Rgba,
         text_dim: gpui::Rgba,
         _bg: gpui::Rgba,
@@ -403,12 +410,12 @@ impl DaemonSelector {
                     .id(("settings-row", i))
                     .flex()
                     .items_center()
-                    .gap_3()
+                    .gap_2()
                     .px(px(12.0))
                     .py(px(8.0))
                     .bg(row_bg)
                     .rounded(px(6.0))
-                    .child(daemon_browser_icon(browser))
+                    .child(daemon_browser_icon_with_path(browser, None))
                     .child(
                         div()
                             .flex_grow()
@@ -429,6 +436,59 @@ impl DaemonSelector {
             })
             .collect();
 
+        // Add Browser button – opens file picker
+        let add_browser_btn = div()
+            .id("add-browser")
+            .flex()
+            .items_center()
+            .gap_2()
+            .px(px(12.0))
+            .py(px(8.0))
+            .bg(row_bg)
+            .rounded(px(6.0))
+            .cursor_pointer()
+            .child(
+                div()
+                    .size(px(24.0))
+                    .rounded(px(4.0))
+                    .bg(accent)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_color(rgb(0xff_ff_ff))
+                    .text_sm()
+                    .font_weight(FontWeight::BOLD)
+                    .child("+"),
+            )
+            .child(
+                div()
+                    .text_color(accent)
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Add Browser..."),
+            )
+            .on_click(cx.listener(move |this, _ev, _window, cx| {
+                if let Some(app_path) = pick_browser_app() {
+                    let name = browser_name_from_app(&app_path);
+                    // Skip if already added
+                    if this.items.iter().any(|(_, b)| b.name() == name) {
+                        return;
+                    }
+                    let browser = Browser::Other {
+                        name: name.clone(),
+                        app_path: Some(app_path.clone()),
+                    };
+                    this.items
+                        .push((gpui::SharedString::from(name.clone()), browser.clone()));
+                    // Save to config
+                    if let Ok(mut config) = crate::config::Config::load() {
+                        config.custom_browsers.push(browser);
+                        let _ = config.save();
+                    }
+                    cx.notify();
+                }
+            }));
+
         div()
             .id("settings-scroll")
             .flex()
@@ -448,6 +508,7 @@ impl DaemonSelector {
                     .child("BROWSERS"),
             )
             .child(div().flex().flex_col().gap_1().children(browser_rows))
+            .child(add_browser_btn)
             // Section: Hotkeys hint
             .child(div().h(px(1.0)).bg(rgb(0x3a_3a_3a)).mt(px(4.0)))
             .child(
@@ -1101,6 +1162,7 @@ impl gpui::Render for DaemonSelector {
         window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
+        use gpui::IntoElement;
         window.focus(&self.focus_handle);
         let bg = rgb(0x1e_1e_1e);
         let row_hover = rgb(0x3a_78_d4);
@@ -1415,24 +1477,29 @@ impl gpui::Render for DaemonSelector {
                 }
             }))
             // main content: browser list, settings or plugin search
-            .child(if self.show_plugin_search {
-                self.render_plugin_panel(text, text_dim, cx)
-            } else if self.show_settings {
-                self.render_settings_panel(text, text_dim, bg, cx)
-            } else {
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_grow()
-                    .gap_1()
-                    .pt(px(10.0))
-                    .pb(px(6.0))
-                    .children(rows)
-                    .into_any_element()
+            .child({
+                let content: gpui::AnyElement = if self.show_plugin_search {
+                    self.render_plugin_panel(text, text_dim, cx)
+                } else if self.show_settings {
+                    self.render_settings_panel(text, text_dim, bg, cx)
+                } else {
+                    div()
+                        .id("browser-scroll")
+                        .flex()
+                        .flex_col()
+                        .flex_grow()
+                        .overflow_y_scroll()
+                        .gap_1()
+                        .pt(px(10.0))
+                        .pb(px(6.0))
+                        .children(rows)
+                        .into_any_element()
+                };
+                content
             })
-            // divider
+            // divider (fixed at bottom)
             .child(div().h(px(1.0)).mx(px(8.0)).bg(rgb(0x3a_3a_3a)))
-            // bottom bar: URL + settings toggle + cancel
+            // bottom bar: URL + plugins + settings + close (fixed at bottom)
             .child(
                 div()
                     .flex()
@@ -1540,25 +1607,46 @@ impl gpui::Render for DaemonSelector {
     }
 }
 
-fn daemon_browser_icon(browser: &Browser) -> gpui::AnyElement {
+/// Render a browser's app icon (32x32).
+/// If `app_path_override` is provided, it is used as the .app path first;
+/// otherwise the browser's stored `app_path()` is tried, then path guessing.
+fn daemon_browser_icon_with_path(
+    browser: &Browser,
+    app_path_override: Option<&str>,
+) -> gpui::AnyElement {
     use gpui::IntoElement;
 
-    // On macOS, try quick candidate locations for the .app bundle and avoid the
-    // expensive `mdfind` fallback (which spawns a process). Results are cached
-    // so subsequent renders are instant.
+    // On macOS, try to locate the .app bundle and extract its icon.
+    // Priority: 1) app_path_override  2) browser.app_path()  3) path guessing
     #[cfg(target_os = "macos")]
     {
         use std::path::Path;
+
+        // Collect candidate paths
+        let mut app_candidates: Vec<String> = Vec::new();
+
+        // 1) Explicit override from manual selection
+        if let Some(p) = app_path_override {
+            app_candidates.push(p.to_string());
+        }
+
+        // 2) Stored app_path from detection
+        if let Some(p) = browser.app_path() {
+            if !app_candidates.iter().any(|c| c == p) {
+                app_candidates.push(p.to_string());
+            }
+        }
+
+        // 3) Guess from exec_name
         let exec = browser.exec_name();
-        let candidates = vec![
-            format!("/Applications/{}.app", exec),
-            format!(
-                "{}/Applications/{}.app",
-                std::env::var("HOME").unwrap_or_default(),
-                exec
-            ),
-        ];
-        for p in &candidates {
+        app_candidates.push(format!("/Applications/{}.app", exec));
+        app_candidates.push(format!(
+            "{}/Applications/{}.app",
+            std::env::var("HOME").unwrap_or_default(),
+            exec
+        ));
+
+        for p in &app_candidates {
             if Path::new(p).exists() {
                 // Check cache first to avoid redundant ObjC calls / PNG decode.
                 let cache = ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
@@ -1589,13 +1677,13 @@ fn daemon_browser_icon(browser: &Browser) -> gpui::AnyElement {
 
     // Fallback: colored letter badge
     let color = match browser {
-        Browser::Chrome => rgb(0x42_85_F4),
-        Browser::Firefox => rgb(0xFF_71_33),
-        Browser::Brave => rgb(0xFB_54_23),
-        Browser::Edge => rgb(0x00_78_D4),
-        Browser::Safari => rgb(0x00_7A_FF),
-        Browser::Arc => rgb(0x97_5B_FD),
-        Browser::Orion => rgb(0x4A_90_D9),
+        Browser::Chrome { .. } => rgb(0x42_85_F4),
+        Browser::Firefox { .. } => rgb(0xFF_71_33),
+        Browser::Brave { .. } => rgb(0xFB_54_23),
+        Browser::Edge { .. } => rgb(0x00_78_D4),
+        Browser::Safari { .. } => rgb(0x00_7A_FF),
+        Browser::Arc { .. } => rgb(0x97_5B_FD),
+        Browser::Orion { .. } => rgb(0x4A_90_D9),
         Browser::Other { .. } => rgb(0x88_88_88),
     };
     div()
@@ -1609,13 +1697,13 @@ fn daemon_browser_icon(browser: &Browser) -> gpui::AnyElement {
         .text_xs()
         .font_weight(FontWeight::BOLD)
         .child(match browser {
-            Browser::Chrome => "C",
-            Browser::Firefox => "F",
-            Browser::Brave => "B",
-            Browser::Edge => "E",
-            Browser::Safari => "S",
-            Browser::Arc => "A",
-            Browser::Orion => "O",
+            Browser::Chrome { .. } => "C",
+            Browser::Firefox { .. } => "F",
+            Browser::Brave { .. } => "B",
+            Browser::Edge { .. } => "E",
+            Browser::Safari { .. } => "S",
+            Browser::Arc { .. } => "A",
+            Browser::Orion { .. } => "O",
             Browser::Other { .. } => "?",
         })
         .into_any_element()
@@ -1681,20 +1769,30 @@ fn app_icon_image(app_path: &str) -> Option<gpui::RenderImage> {
     };
 
     let img = image::load_from_memory_with_format(&png_bytes, image::ImageFormat::Png).ok()?;
-    let rgba = img.into_rgba8();
+    let mut rgba = img.into_rgba8();
+    // GPUI's RenderImage expects BGRA format, convert from RGBA
+    for pixel in rgba.pixels_mut() {
+        let [r, g, b, a] = pixel.0;
+        pixel.0 = [b, g, r, a];
+    }
     let frame = image::Frame::new(rgba);
     Some(gpui::RenderImage::new(vec![frame]))
 }
 
+/// Backward-compatible wrapper (no path override).
+fn daemon_browser_icon(browser: &Browser) -> gpui::AnyElement {
+    daemon_browser_icon_with_path(browser, None)
+}
+
 fn browser_icon(browser: &Browser) -> impl IntoElement {
     let colors = match browser {
-        Browser::Chrome => (rgb(0x42_85_F4), rgb(0xEA_43_35), rgb(0x34_A8_53)),
-        Browser::Firefox => (rgb(0xFF_71_33), rgb(0xFF_71_33), rgb(0xFF_71_33)),
-        Browser::Brave => (rgb(0xFB_54_23), rgb(0xFB_54_23), rgb(0xFB_54_23)),
-        Browser::Edge => (rgb(0x00_78_D4), rgb(0x00_78_D4), rgb(0x00_78_D4)),
-        Browser::Safari => (rgb(0x00_7A_FF), rgb(0x00_7A_FF), rgb(0x00_7A_FF)),
-        Browser::Arc => (rgb(0x97_5B_FD), rgb(0x97_5B_FD), rgb(0x97_5B_FD)),
-        Browser::Orion => (rgb(0x4A_90_D9), rgb(0x4A_90_D9), rgb(0x4A_90_D9)),
+        Browser::Chrome { .. } => (rgb(0x42_85_F4), rgb(0xEA_43_35), rgb(0x34_A8_53)),
+        Browser::Firefox { .. } => (rgb(0xFF_71_33), rgb(0xFF_71_33), rgb(0xFF_71_33)),
+        Browser::Brave { .. } => (rgb(0xFB_54_23), rgb(0xFB_54_23), rgb(0xFB_54_23)),
+        Browser::Edge { .. } => (rgb(0x00_78_D4), rgb(0x00_78_D4), rgb(0x00_78_D4)),
+        Browser::Safari { .. } => (rgb(0x00_7A_FF), rgb(0x00_7A_FF), rgb(0x00_7A_FF)),
+        Browser::Arc { .. } => (rgb(0x97_5B_FD), rgb(0x97_5B_FD), rgb(0x97_5B_FD)),
+        Browser::Orion { .. } => (rgb(0x4A_90_D9), rgb(0x4A_90_D9), rgb(0x4A_90_D9)),
         Browser::Other { .. } => (rgb(0x88_88_88), rgb(0x88_88_88), rgb(0x88_88_88)),
     };
 
@@ -1709,9 +1807,86 @@ fn browser_icon(browser: &Browser) -> impl IntoElement {
         .child(div().w(px(6.0)).h(px(16.0)).bg(colors.2).rounded(px(2.0)))
 }
 
+/// Show a native file picker (macOS) to select a .app bundle.
+/// Returns the POSIX path of the selected .app, or `None` if cancelled.
+fn pick_browser_app() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        let output = Command::new("osascript")
+            .args([
+                "-e",
+                r#"set f to choose file with prompt "Select Browser Application" of type {"app"}"#,
+                "-e",
+                "if f is not false then return POSIX path of f",
+            ])
+            .output()
+            .ok()?;
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if path.is_empty() {
+                None
+            } else {
+                Some(path)
+            }
+        } else {
+            None
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// Extract the display name from a .app bundle's Info.plist.
+fn browser_name_from_app(app_path: &str) -> String {
+    let plist_path = format!("{}/Contents/Info.plist", app_path);
+    if std::path::Path::new(&plist_path).exists() {
+        use std::process::Command;
+        if let Ok(output) = Command::new("plutil")
+            .args(["-convert", "xml1", "-o", "-", &plist_path])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                // Try CFBundleDisplayName first, then CFBundleName
+                let name = extract_plist_str(&text, "CFBundleDisplayName")
+                    .or_else(|| extract_plist_str(&text, "CFBundleName"));
+                if let Some(n) = name {
+                    return n;
+                }
+            }
+        }
+    }
+    // Fallback: use the filename without .app
+    std::path::Path::new(app_path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| app_path.to_string())
+}
+
+fn extract_plist_str(text: &str, key: &str) -> Option<String> {
+    let key_tag = format!("<key>{}</key>", key);
+    let pos = text.find(&key_tag)?;
+    let after = &text[pos + key_tag.len()..];
+    let start = after.find("<string>")? + "<string>".len();
+    let end = after[start..].find("</string>")?;
+    let value = after[start..start + end].trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
 pub fn run_selector_standalone(url: &str, browsers: &[Browser]) -> Option<SelectorResult> {
     let b_list = if browsers.is_empty() {
-        vec![Browser::Chrome, Browser::Firefox, Browser::Safari]
+        vec![
+            Browser::Chrome { app_path: None },
+            Browser::Firefox { app_path: None },
+            Browser::Safari { app_path: None },
+        ]
     } else {
         browsers.to_vec()
     };

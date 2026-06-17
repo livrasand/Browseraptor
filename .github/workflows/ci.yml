@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      publish-release:
+        description: "Crear un Release en GitHub con los artefactos"
+        type: boolean
+        default: false
+      tag:
+        description: "Tag del release (ej: v0.3.0). Solo si publish-release es true"
+        type: string
+        default: ""
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-binaries.yml
+    with:
+      publish-release: ${{ github.event_name == 'push' || inputs.publish-release }}
+      tag: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}

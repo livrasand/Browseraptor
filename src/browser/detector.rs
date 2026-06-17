@@ -20,13 +20,13 @@ pub fn detect_installed() -> Vec<Browser> {
 
     // Fallback: check known browsers by path / mdfind
     let candidates = vec![
-        Browser::Chrome,
-        Browser::Firefox,
-        Browser::Brave,
-        Browser::Edge,
-        Browser::Safari,
-        Browser::Arc,
-        Browser::Orion,
+        Browser::Chrome { app_path: None },
+        Browser::Firefox { app_path: None },
+        Browser::Brave { app_path: None },
+        Browser::Edge { app_path: None },
+        Browser::Safari { app_path: None },
+        Browser::Arc { app_path: None },
+        Browser::Orion { app_path: None },
     ];
     candidates.into_iter().filter(|b| is_installed(b)).collect()
 }
@@ -35,7 +35,7 @@ pub fn detect_installed() -> Vec<Browser> {
 fn detect_via_launch_services() -> Vec<Browser> {
     use objc2::rc::Retained;
     use objc2_app_kit::NSWorkspace;
-    use objc2_foundation::{NSURL, NSString};
+    use objc2_foundation::{NSString, NSURL};
 
     let url_str = NSString::from_str("https://example.com");
     let ns_url = NSURL::URLWithString(&url_str);
@@ -90,13 +90,29 @@ fn detect_via_launch_services() -> Vec<Browser> {
         }
 
         let browser = match bundle_id.as_str() {
-            "com.google.Chrome" | "com.google.Chrome.beta" | "com.google.Chrome.canary" => Browser::Chrome,
-            "org.mozilla.firefox" | "org.mozilla.firefoxdeveloperedition" => Browser::Firefox,
-            "com.brave.Browser" | "com.brave.Browser.beta" => Browser::Brave,
-            "com.microsoft.Edge" | "com.microsoft.Edge.beta" => Browser::Edge,
-            "com.apple.Safari" | "com.apple.SafariTechnologyPreview" => Browser::Safari,
-            "company.thebrowser.Browser" => Browser::Arc,
-            "com.kagi.Orion" => Browser::Orion,
+            "com.google.Chrome" | "com.google.Chrome.beta" | "com.google.Chrome.canary" => {
+                Browser::Chrome {
+                    app_path: Some(app_path.clone()),
+                }
+            }
+            "org.mozilla.firefox" | "org.mozilla.firefoxdeveloperedition" => Browser::Firefox {
+                app_path: Some(app_path.clone()),
+            },
+            "com.brave.Browser" | "com.brave.Browser.beta" => Browser::Brave {
+                app_path: Some(app_path.clone()),
+            },
+            "com.microsoft.Edge" | "com.microsoft.Edge.beta" => Browser::Edge {
+                app_path: Some(app_path.clone()),
+            },
+            "com.apple.Safari" | "com.apple.SafariTechnologyPreview" => Browser::Safari {
+                app_path: Some(app_path.clone()),
+            },
+            "company.thebrowser.Browser" => Browser::Arc {
+                app_path: Some(app_path.clone()),
+            },
+            "com.kagi.Orion" => Browser::Orion {
+                app_path: Some(app_path.clone()),
+            },
             _ => {
                 let name = display_name.unwrap_or_else(|| {
                     std::path::Path::new(&app_path)
@@ -104,7 +120,10 @@ fn detect_via_launch_services() -> Vec<Browser> {
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_else(|| bundle_id.clone())
                 });
-                Browser::Other { name, app_path: Some(app_path) }
+                Browser::Other {
+                    name,
+                    app_path: Some(app_path),
+                }
             }
         };
 
@@ -123,13 +142,13 @@ fn detect_via_launch_services() -> Vec<Browser> {
 
 fn known_order(b: &Browser) -> u8 {
     match b {
-        Browser::Chrome  => 0,
-        Browser::Firefox => 1,
-        Browser::Brave   => 2,
-        Browser::Edge    => 3,
-        Browser::Safari  => 4,
-        Browser::Arc     => 5,
-        Browser::Orion   => 6,
+        Browser::Chrome { .. } => 0,
+        Browser::Firefox { .. } => 1,
+        Browser::Brave { .. } => 2,
+        Browser::Edge { .. } => 3,
+        Browser::Safari { .. } => 4,
+        Browser::Arc { .. } => 5,
+        Browser::Orion { .. } => 6,
         Browser::Other { .. } => 7,
     }
 }
@@ -157,9 +176,12 @@ fn extract_plist_string(text: &str, key: &str) -> Option<String> {
     let start = after.find("<string>")? + "<string>".len();
     let end = after[start..].find("</string>")?;
     let value = after[start..start + end].trim().to_string();
-    if value.is_empty() { None } else { Some(value) }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
 }
-
 
 fn is_installed(browser: &Browser) -> bool {
     let path = format!("/Applications/{}.app", browser.exec_name());

@@ -1,6 +1,59 @@
+# === Rust ===
 /target
+**/*.rs.bk/
+
+# === Build & Distribution ===
+/dist
+*.wasm
+
+# === Patch / Generated Files ===
+*.orig
+*.rej
+*.patch
+*.diff
+
+# === macOS ===
 .DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# === Editor / IDE ===
 *.swp
 *.swo
 *~
-*.wasm
+.vscode/
+.idea/
+*.iml
+.vs/
+*.swm
+*.swn
+*.swn
+*.bak
+*.tmp
+
+# === Logs ===
+*.log
+
+# === Environment ===
+.env
+.env.local
+.env.*.local
+
+# === Python (patch scripts) ===
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
+.env/
+.venv/

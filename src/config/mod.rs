@@ -16,7 +16,9 @@ pub struct Repository {
     pub enabled: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 fn default_repositories() -> Vec<Repository> {
     vec![Repository {
@@ -42,6 +44,9 @@ pub struct Config {
     pub installed_plugins: Vec<crate::plugin::InstalledPlugin>,
     #[serde(default = "default_repositories")]
     pub repositories: Vec<Repository>,
+    /// Manually added browsers (name + .app path).
+    #[serde(default)]
+    pub custom_browsers: Vec<Browser>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,12 +58,13 @@ pub struct Remembered {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            default_browser: Some(Browser::Chrome),
+            default_browser: Some(Browser::Chrome { app_path: None }),
             always_show_selector: false,
             rules: vec![],
             remembered: vec![],
             hotkeys: HashMap::new(),
             installed_plugins: vec![],
+            custom_browsers: vec![],
             repositories: default_repositories(),
         }
     }
@@ -85,7 +91,8 @@ impl Config {
             std::fs::create_dir_all(parent).context("failed to create config directory")?;
         }
         let content = serde_yaml::to_string(self).context("failed to serialize config")?;
-        std::fs::write(&path, content).with_context(|| format!("failed to write config to {:?}", path))?;
+        std::fs::write(&path, content)
+            .with_context(|| format!("failed to write config to {:?}", path))?;
         Ok(())
     }
 }
