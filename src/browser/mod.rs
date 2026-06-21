@@ -63,6 +63,7 @@ impl Browser {
     }
 
     /// Return a new Browser with the given .app path.
+    #[allow(dead_code)]
     pub fn with_app_path(&self, path: String) -> Self {
         let set = |app_path: &mut Option<String>| *app_path = Some(path);
         let mut b = self.clone();

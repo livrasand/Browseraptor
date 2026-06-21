@@ -291,7 +291,6 @@ pub struct DaemonSelector {
     hotkeys: std::collections::HashMap<String, String>,
     focus_handle: gpui::FocusHandle,
     command_tx: std::sync::mpsc::Sender<crate::app::AppCommand>,
-    show_settings: bool,
     show_plugin_search: bool,
     plugin_query: String,
     channel_plugins: Option<Vec<(String, crate::plugin::ChannelPluginEntry)>>,
@@ -330,7 +329,6 @@ impl DaemonSelector {
             hotkeys: config.hotkeys,
             focus_handle: cx.focus_handle(),
             command_tx,
-            show_settings: false,
             show_plugin_search: false,
             plugin_query: String::new(),
             channel_plugins: None,
@@ -355,176 +353,6 @@ impl DaemonSelector {
             Browser::Orion { .. } => "O",
             Browser::Other { .. } => "?",
         }
-    }
-
-    fn render_settings_panel(
-        &mut self,
-        text: gpui::Rgba,
-        text_dim: gpui::Rgba,
-        _bg: gpui::Rgba,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        use gpui::IntoElement;
-
-        let accent = rgb(0x4a_90_d9);
-        let row_bg = rgb(0x28_28_28);
-        let badge_bg = rgb(0x3a_3a_3a);
-
-        let browser_rows: Vec<_> = self
-            .items
-            .iter()
-            .enumerate()
-            .map(|(i, (name, browser))| {
-                let custom_key = self
-                    .hotkeys
-                    .get(browser.name())
-                    .cloned()
-                    .unwrap_or_else(|| Self::shortcut_char(browser).to_owned());
-                let is_editing = self.editing_hotkey == Some(i);
-
-                let key_label: gpui::AnyElement = if is_editing {
-                    div()
-                        .px(px(6.0))
-                        .py(px(2.0))
-                        .bg(accent)
-                        .rounded(px(4.0))
-                        .text_color(text)
-                        .text_xs()
-                        .font_weight(FontWeight::BOLD)
-                        .child("...")
-                        .into_any_element()
-                } else {
-                    div()
-                        .px(px(6.0))
-                        .py(px(2.0))
-                        .bg(badge_bg)
-                        .rounded(px(4.0))
-                        .text_color(accent)
-                        .text_xs()
-                        .font_weight(FontWeight::BOLD)
-                        .child(custom_key)
-                        .into_any_element()
-                };
-
-                div()
-                    .id(("settings-row", i))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px(px(12.0))
-                    .py(px(8.0))
-                    .bg(row_bg)
-                    .rounded(px(6.0))
-                    .child(daemon_browser_icon_with_path(browser, None))
-                    .child(
-                        div()
-                            .flex_grow()
-                            .text_color(text)
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(name.clone()),
-                    )
-                    .child(key_label)
-                    .on_click(cx.listener(move |this, _ev, _window, cx| {
-                        if this.editing_hotkey == Some(i) {
-                            this.editing_hotkey = None;
-                        } else {
-                            this.editing_hotkey = Some(i);
-                        }
-                        cx.notify();
-                    }))
-            })
-            .collect();
-
-        // Add Browser button – opens file picker
-        let add_browser_btn = div()
-            .id("add-browser")
-            .flex()
-            .items_center()
-            .gap_2()
-            .px(px(12.0))
-            .py(px(8.0))
-            .bg(row_bg)
-            .rounded(px(6.0))
-            .cursor_pointer()
-            .child(
-                div()
-                    .size(px(24.0))
-                    .rounded(px(4.0))
-                    .bg(accent)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(rgb(0xff_ff_ff))
-                    .text_sm()
-                    .font_weight(FontWeight::BOLD)
-                    .child("+"),
-            )
-            .child(
-                div()
-                    .text_color(accent)
-                    .text_sm()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Add Browser..."),
-            )
-            .on_click(cx.listener(move |this, _ev, _window, cx| {
-                if let Some(app_path) = pick_browser_app() {
-                    let name = browser_name_from_app(&app_path);
-                    // Skip if already added
-                    if this.items.iter().any(|(_, b)| b.name() == name) {
-                        return;
-                    }
-                    let browser = Browser::Other {
-                        name: name.clone(),
-                        app_path: Some(app_path.clone()),
-                    };
-                    this.items
-                        .push((gpui::SharedString::from(name.clone()), browser.clone()));
-                    // Save to config
-                    if let Ok(mut config) = crate::config::Config::load() {
-                        config.custom_browsers.push(browser);
-                        let _ = config.save();
-                    }
-                    cx.notify();
-                }
-            }));
-
-        div()
-            .id("settings-scroll")
-            .flex()
-            .flex_col()
-            .flex_grow()
-            .overflow_y_scroll()
-            .px(px(14.0))
-            .pt(px(12.0))
-            .pb(px(8.0))
-            .gap_3()
-            // Section: Browsers
-            .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(text_dim)
-                    .child("BROWSERS"),
-            )
-            .child(div().flex().flex_col().gap_1().children(browser_rows))
-            .child(add_browser_btn)
-            // Section: Hotkeys hint
-            .child(div().h(px(1.0)).bg(rgb(0x3a_3a_3a)).mt(px(4.0)))
-            .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(text_dim)
-                    .child("HOTKEYS"),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(text_dim)
-                    .child("Click a browser row above to assign a custom key."),
-            )
-            .into_any_element()
     }
 
     fn render_plugin_panel(
@@ -1293,6 +1121,65 @@ impl gpui::Render for DaemonSelector {
             })
             .collect();
 
+        // Add Browser button – opens file picker
+        let border_color = rgb(0x3a_3a_3e);
+        let accent_add = rgb(0x4a_90_d9);
+        let add_browser_btn = div()
+            .id("add-browser")
+            .flex()
+            .items_center()
+            .gap_3()
+            .px(px(16.0))
+            .py(px(13.0))
+            .mx(px(8.0))
+            .bg(row_normal)
+            .rounded(px(10.0))
+            .border_1()
+            .border_color(border_color)
+            .cursor_pointer()
+            .child(
+                div()
+                    .size(px(28.0))
+                    .rounded(px(8.0))
+                    .bg(accent_add)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_color(rgb(0xff_ff_ff))
+                    .text_base()
+                    .font_weight(FontWeight::BOLD)
+                    .child("+"),
+            )
+            .child(
+                div()
+                    .flex_grow()
+                    .text_color(text_dim)
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child("Add Browser..."),
+            )
+            .on_click(cx.listener(move |this, _ev, _window, cx| {
+                if let Some(app_path) = pick_browser_app() {
+                    let name = browser_name_from_app(&app_path);
+                    // Skip if already added
+                    if this.items.iter().any(|(_, b)| b.name() == name) {
+                        return;
+                    }
+                    let browser = Browser::Other {
+                        name: name.clone(),
+                        app_path: Some(app_path.clone()),
+                    };
+                    this.items
+                        .push((gpui::SharedString::from(name.clone()), browser.clone()));
+                    // Save to config
+                    if let Ok(mut config) = crate::config::Config::load() {
+                        config.custom_browsers.push(browser);
+                        let _ = config.save();
+                    }
+                    cx.notify();
+                }
+            }));
+
         div()
             .id("selector-root")
             .flex()
@@ -1480,8 +1367,6 @@ impl gpui::Render for DaemonSelector {
             .child({
                 let content: gpui::AnyElement = if self.show_plugin_search {
                     self.render_plugin_panel(text, text_dim, cx)
-                } else if self.show_settings {
-                    self.render_settings_panel(text, text_dim, bg, cx)
                 } else {
                     div()
                         .id("browser-scroll")
@@ -1493,6 +1378,7 @@ impl gpui::Render for DaemonSelector {
                         .pt(px(10.0))
                         .pb(px(6.0))
                         .children(rows)
+                        .child(add_browser_btn)
                         .into_any_element()
                 };
                 content
@@ -1536,47 +1422,12 @@ impl gpui::Render for DaemonSelector {
                             .on_click(cx.listener(|this, _ev, _window, cx| {
                                 this.show_plugin_search = !this.show_plugin_search;
                                 if this.show_plugin_search {
-                                    this.show_settings = false;
                                     this.plugin_query.clear();
                                     this.channel_plugins = None;
                                     // Fetch channel on open asynchronously (non-blocking).
                                     let _ =
                                         crate::plugin::fetch_channel_async(this.command_tx.clone());
                                 }
-                                cx.notify();
-                            })),
-                    )
-                    // settings gear icon
-                    .child(
-                        div()
-                            .id("settings-btn")
-                            .size(px(22.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .cursor_pointer()
-                            .text_color(if self.show_settings {
-                                rgb(0x4a_90_d9)
-                            } else {
-                                text_dim
-                            })
-                            .text_base()
-                            .child(
-                                svg()
-                                    .path("assets/icons/lucide--cog.svg")
-                                    .size(px(16.0))
-                                    .text_color(if self.show_settings {
-                                        rgb(0x4a_90_d9)
-                                    } else {
-                                        text_dim
-                                    }),
-                            )
-                            .on_click(cx.listener(|this, _ev, _window, cx| {
-                                this.show_settings = !this.show_settings;
-                                if this.show_settings {
-                                    this.show_plugin_search = false;
-                                }
-                                this.editing_hotkey = None;
                                 cx.notify();
                             })),
                     )
