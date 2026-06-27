@@ -119,7 +119,3 @@ Stop-Process -Name browseraptor -Force
 # Contributors
 
 For information on contributing to this project, please see [CONTRIBUTING.md](/CONTRIBUTING.md).
-
-<a href="https://github.com/livrasand/Browseraptor/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=livrasand/Browseraptor" />
-</a>
