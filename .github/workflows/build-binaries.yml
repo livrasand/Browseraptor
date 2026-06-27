@@ -37,8 +37,6 @@ on:
         required: false
       TEST_VERSION:
         required: false
-      GITHUB_TOKEN:
-        required: false
 
 jobs:
   build:
