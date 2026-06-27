@@ -105,6 +105,11 @@ jobs:
           if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
           Compress-Archive -Path (Join-Path -Path "dist" -ChildPath "*") -DestinationPath $zipPath -Force
 
+      - name: Install Metal Toolchain (macOS)
+        if: ${{ matrix.os == 'macos-latest' }}
+        run: |
+          xcodebuild -downloadComponent MetalToolchain
+
       - name: Build (macOS)
         if: ${{ matrix.os == 'macos-latest' }}
         run: |

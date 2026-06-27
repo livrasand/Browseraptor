@@ -1,4 +1,3 @@
-/// Get the bundle ID of the default HTTP handler
 pub fn get_default_http_handler() -> Option<String> {
     #[cfg(target_os = "macos")]
     return get_default_http_handler_macos();
@@ -16,19 +15,15 @@ pub fn get_default_http_handler() -> Option<String> {
     }
 }
 
-/// Check if Browseraptor is the default HTTP handler
 pub fn is_browseraptor_default() -> bool {
     match get_default_http_handler() {
         Some(bundle_id) => {
-            // Browseraptor's bundle ID would typically be something like "com.browseraptor.Browseraptor"
-            // For now, we'll check if it contains "browseraptor"
             bundle_id.to_lowercase().contains("browseraptor")
         }
         None => false,
     }
 }
 
-/// Automatically attempt to set Browseraptor as the default browser
 pub fn set_as_default_browser() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     return set_as_default_browser_macos();
@@ -79,7 +74,6 @@ fn set_as_default_browser_macos() -> Result<(), String> {
         }
     }
 }
-/// Open System Settings to the default browser configuration
 pub fn open_default_browser_settings() {
     #[cfg(target_os = "macos")]
     open_default_browser_settings_macos();
@@ -106,7 +100,6 @@ fn get_default_http_handler_macos() -> Option<String> {
         #[allow(unexpected_cfgs)]
         let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
         
-        // Create a test URL
         let url_string = NSString::alloc(nil).init_str("http://example.com");
         #[allow(unexpected_cfgs)]
         let url: id = msg_send![class!(NSURL), URLWithString: url_string];
@@ -116,7 +109,6 @@ fn get_default_http_handler_macos() -> Option<String> {
             return None;
         }
         
-        // Get the default app for this URL
         #[allow(unexpected_cfgs)]
         let app_url: id = msg_send![workspace, URLForApplicationToOpenURL: url];
         
@@ -125,7 +117,6 @@ fn get_default_http_handler_macos() -> Option<String> {
             return None;
         }
         
-        // Get the bundle ID from the app URL
         #[allow(unexpected_cfgs)]
         let bundle: id = msg_send![class!(NSBundle), bundleWithURL: app_url];
         if bundle == nil {
@@ -164,7 +155,6 @@ fn open_default_browser_settings_macos() {
         #[allow(unexpected_cfgs)]
         let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
         
-        // Open System Settings > General > Default web browser
         let url_string = NSString::alloc(nil).init_str("x-apple.systempreferences:com.apple.preference.general");
         #[allow(unexpected_cfgs)]
         let url: id = msg_send![class!(NSURL), URLWithString: url_string];
@@ -211,7 +201,6 @@ fn get_default_http_handler_windows() -> Option<String> {
 fn open_default_browser_settings_windows() {
     use std::process::Command;
     
-    // Open Windows Settings > Apps > Default apps
     let _ = Command::new("cmd")
         .args(&["/c", "start", "ms-settings:defaultapps"])
         .spawn();
@@ -223,7 +212,6 @@ fn open_default_browser_settings_windows() {
 fn get_default_http_handler_linux() -> Option<String> {
     use std::process::Command;
     
-    // Try xdg-settings to get default browser
     match Command::new("xdg-settings")
         .args(&["get", "default-web-browser"])
         .output()
@@ -249,7 +237,6 @@ fn get_default_http_handler_linux() -> Option<String> {
 fn open_default_browser_settings_linux() {
     use std::process::Command;
     
-    // Try to open GNOME settings or KDE settings
     let _ = Command::new("xdg-open")
         .arg("settings://default-apps")
         .spawn();

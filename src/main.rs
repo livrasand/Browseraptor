@@ -7,6 +7,7 @@ mod default_browser;
 mod hotkey;
 mod plugin;
 mod single_instance;
+mod tray;
 mod ui;
 
 use std::borrow::Cow;
@@ -248,6 +249,10 @@ fn run_daemon_with_url(initial_url: Option<String>) {
         });
     }
     gpui_app.run(move |cx: &mut gpui::App| {
+        // Setup tray icon with Quit menu
+        crate::tray::setup_tray();
+        tracing::info!("Tray icon setup");
+
         hotkey::start_hotkey_listener(tx.clone());
         tracing::info!("Hotkey listener started");
 
@@ -257,9 +262,8 @@ fn run_daemon_with_url(initial_url: Option<String>) {
 
         // Set activation policy (macOS only)
         // In dev mode (debug), show dock icon for easier debugging.
-        // In production, do NOT call setActivationPolicy — let LSUIElement=true
-        // in Info.plist handle hiding the dock icon, while keeping the app able
-        // to receive Apple Events (GetURL) and show windows on demand.
+        // In production, use Accessory policy to hide dock icon while keeping
+        // the app able to receive Apple Events (GetURL) and show windows on demand.
         #[cfg(target_os = "macos")]
         {
             let is_dev = std::env::var("BROWSERAPTOR_DEV").is_ok() || cfg!(debug_assertions);
@@ -269,7 +273,10 @@ fn run_daemon_with_url(initial_url: Option<String>) {
                 app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
                 tracing::info!("Dock icon visible (dev mode)");
             } else {
-                tracing::info!("Dock icon hidden via LSUIElement (production mode)");
+                let mtm = MainThreadMarker::new().expect("must be on main thread");
+                let app = NSApplication::sharedApplication(mtm);
+                app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+                tracing::info!("Dock icon hidden (accessory mode)");
             }
         }
 
@@ -291,11 +298,9 @@ fn run_daemon_with_url(initial_url: Option<String>) {
             ui::default_prompt::DefaultBrowserPrompt::show(cx);
         }
 
-        // If launched with a URL (e.g. first click before daemon was running), show selector now
-        if let Some(url) = initial_url {
-            tracing::info!("Initial URL from launch: {}", url);
-            let _ = tx.send(AppCommand::ShowSelector(Some(url)));
-        }
+        // Show selector on launch: with the URL if one was provided, or empty (manual open)
+        tracing::info!("Initial URL from launch: {:?}", initial_url);
+        let _ = tx.send(AppCommand::ShowSelector(initial_url));
 
         let browsers_for_selector = browsers.clone();
 
@@ -320,7 +325,7 @@ fn run_daemon_with_url(initial_url: Option<String>) {
                     let tx_clone2 = tx.clone();
                     let update_result = cx_clone.update(|cx| match cmd {
                         AppCommand::ShowSelector(url) => {
-                            let url = url.unwrap_or_else(|| "https://example.com".into());
+                            let url = url.unwrap_or_default();
                             tracing::info!("ShowSelector: opening window for {}", url);
                             // Snapshot current browsers list for the selector.
                             let b_snapshot = {

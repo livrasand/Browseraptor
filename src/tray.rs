@@ -1,4 +1,4 @@
-use cocoa::appkit::{NSStatusBar, NSStatusItem, NSVariableStatusItemLength};
+use cocoa::appkit::{NSStatusBar, NSVariableStatusItemLength};
 use cocoa::base::{YES, id, nil};
 use cocoa::foundation::NSString;
 use objc::{msg_send, sel, sel_impl};

@@ -281,13 +281,20 @@ impl Render for Selector {
 
 /// Selector used inside the daemon (no standalone Application::new())
 #[allow(dead_code)]
+#[derive(Clone)]
+struct ConfigRuleForm {
+    domain_pattern: String,
+    browser: String,
+    profile: String,
+}
+
 pub struct DaemonSelector {
     url: gpui::SharedString,
-    domain: gpui::SharedString,
     items: Vec<(gpui::SharedString, Browser)>,
     selected_idx: usize,
     editing_hotkey: Option<usize>,
     hovered_key: Option<usize>,
+    hovered_icon: Option<usize>,
     hotkeys: std::collections::HashMap<String, String>,
     focus_handle: gpui::FocusHandle,
     command_tx: std::sync::mpsc::Sender<crate::app::AppCommand>,
@@ -301,13 +308,27 @@ pub struct DaemonSelector {
     add_repo_name: String,
     add_repo_url: String,
     repo_input_focus: u8,
+    dev_plugin_error: Option<String>,
+    dev_plugin_loading: bool,
+    expanded_plugin: Option<usize>,
+    // UI de configuracion del plugin
+    showing_config: bool,
+    config_plugin_idx: usize,
+    config_default_browser: String,
+    config_default_profile: String,
+    config_rules: Vec<ConfigRuleForm>,
+    config_focus_kind: u8, // 0=none, 1=default_browser, 2=default_profile, 3=rule_field
+    config_focus_rule: usize, // indice de regla cuando focus_kind==3
+    config_focus_field: u8, // 0=domain, 1=browser, 2=profile cuando focus_kind==3
+    config_browser_dropdown_idx: usize,
+    config_save_error: Option<String>,
 }
 
 #[allow(dead_code)]
 impl DaemonSelector {
     pub fn new(
         url: String,
-        domain: String,
+        _domain: String,
         _browsers: Vec<Browser>,
         command_tx: std::sync::mpsc::Sender<crate::app::AppCommand>,
         cx: &mut gpui::Context<Self>,
@@ -321,11 +342,11 @@ impl DaemonSelector {
             .collect();
         Self {
             url: url.into(),
-            domain: domain.into(),
             items,
             selected_idx: 0,
             editing_hotkey: None,
             hovered_key: None,
+            hovered_icon: None,
             hotkeys: config.hotkeys,
             focus_handle: cx.focus_handle(),
             command_tx,
@@ -339,6 +360,19 @@ impl DaemonSelector {
             add_repo_name: String::new(),
             add_repo_url: String::new(),
             repo_input_focus: 0,
+            dev_plugin_error: None,
+            dev_plugin_loading: false,
+            expanded_plugin: None,
+            showing_config: false,
+            config_plugin_idx: 0,
+            config_default_browser: String::new(),
+            config_default_profile: String::new(),
+            config_rules: Vec::new(),
+            config_focus_kind: 0,
+            config_focus_rule: 0,
+            config_focus_field: 0,
+            config_browser_dropdown_idx: 0,
+            config_save_error: None,
         }
     }
 
@@ -381,18 +415,26 @@ impl DaemonSelector {
         let installed_rows: Vec<_> = self
             .installed_plugins
             .iter()
-            .map(|p| {
+            .enumerate()
+            .map(|(i, p)| {
                 let name = p.name.clone();
                 let ver = p.version.clone();
                 let desc = p.description.clone().unwrap_or_default();
-                div()
+                let is_dev = p.local_wasm_path.is_some();
+                let is_expanded = self.expanded_plugin == Some(i);
+
+                let row = div()
+                    .id(("plugin-installed-row", i))
                     .flex()
                     .items_center()
                     .gap_3()
+                    .flex_grow()
+                    .min_w(px(0.0))
                     .px(px(12.0))
                     .py(px(8.0))
-                    .bg(row_bg)
+                    .bg(if is_expanded { rgb(0x22_2a_2a) } else { row_bg })
                     .rounded(px(6.0))
+                    .cursor_pointer()
                     .child(
                         div()
                             .size(px(28.0))
@@ -410,6 +452,7 @@ impl DaemonSelector {
                             .flex()
                             .flex_col()
                             .flex_grow()
+                            .min_w(px(0.0))
                             .child(
                                 div()
                                     .text_sm()
@@ -417,7 +460,14 @@ impl DaemonSelector {
                                     .text_color(text)
                                     .child(name),
                             )
-                            .child(div().text_xs().text_color(text_dim).child(desc)),
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(text_dim)
+                                    .overflow_hidden()
+                                    .min_w(px(0.0))
+                                    .child(desc),
+                            ),
                     )
                     .child(
                         div()
@@ -425,6 +475,319 @@ impl DaemonSelector {
                             .text_color(text_dim)
                             .child(format!("v{}", ver)),
                     )
+                    .child(if is_dev {
+                        div()
+                            .px(px(4.0))
+                            .py(px(1.0))
+                            .ml(px(4.0))
+                            .bg(rgb(0x2d_6b_3a))
+                            .rounded(px(3.0))
+                            .text_color(green)
+                            .text_xs()
+                            .child("Dev")
+                            .into_any_element()
+                    } else {
+                        div().into_any_element()
+                    })
+                    .child(
+                        div()
+                            .id(("expand-plugin", i))
+                            .size(px(18.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_xs()
+                            .text_color(text_dim)
+                            .child(if is_expanded { "▲" } else { "▼" }),
+                    )
+                    .on_click(cx.listener(move |this, _ev, _window, cx| {
+                        if this.expanded_plugin == Some(i) {
+                            this.expanded_plugin = None;
+                        } else {
+                            this.expanded_plugin = Some(i);
+                        }
+                        cx.notify();
+                    }));
+
+                // Contenedor principal
+                let mut col = div().flex().flex_col().gap_1();
+                col = col.child(row);
+
+                // Panel expandido con detalles
+                if is_expanded {
+                    let mut detail_col = div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .px(px(12.0))
+                        .py(px(10.0))
+                        .ml(px(40.0))
+                        .bg(rgb(0x22_22_22))
+                        .rounded(px(6.0))
+                        .min_w(px(0.0));
+
+                    // ID
+                    detail_col = detail_col.child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(text_dim)
+                                    .flex_shrink()
+                                    .child("ID:"),
+                            )
+                            .child(
+                                div()
+                                    .flex_grow()
+                                    .min_w(px(0.0))
+                                    .text_xs()
+                                    .text_color(text)
+                                    .child(p.id.clone()),
+                            ),
+                    );
+
+                    // Descripcion completa
+                    if let Some(ref desc_full) = p.description {
+                        detail_col = detail_col.child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(text_dim)
+                                        .flex_shrink()
+                                        .child("Desc:"),
+                                )
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_col()
+                                        .flex_grow()
+                                        .min_w(px(0.0))
+                                        .overflow_hidden()
+                                        .text_xs()
+                                        .text_color(text)
+                                        .child(desc_full.clone()),
+                                ),
+                        );
+                    }
+
+                    // Ruta local (solo dev)
+                    if let Some(ref path) = p.local_wasm_path {
+                        detail_col = detail_col.child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(text_dim)
+                                        .flex_shrink()
+                                        .child("WASM:"),
+                                )
+                                .child(
+                                    div()
+                                        .flex_grow()
+                                        .min_w(px(0.0))
+                                        .text_xs()
+                                        .text_color(text_dim)
+                                        .overflow_hidden()
+                                        .child(path.clone()),
+                                ),
+                        );
+                    }
+
+                    // Botones de accion
+                    let mut actions = div().flex().items_center().gap_2().mt(px(4.0));
+
+                    // Abrir carpeta (solo dev)
+                    if let Some(ref path) = p.local_wasm_path {
+                        let dir_path = std::path::Path::new(path)
+                            .parent()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        let dir_path_clone = dir_path.clone();
+                        actions = actions.child(
+                            div()
+                                .id(("open-plugin-dir", i))
+                                .px(px(8.0))
+                                .py(px(4.0))
+                                .rounded(px(4.0))
+                                .bg(accent)
+                                .text_xs()
+                                .text_color(rgb(0xff_ff_ff))
+                                .cursor_pointer()
+                                .child("Abrir carpeta")
+                                .on_click(cx.listener(move |_this, _ev, _window, _cx| {
+                                    #[cfg(target_os = "macos")]
+                                    {
+                                        let _ = std::process::Command::new("open")
+                                            .arg(&dir_path_clone)
+                                            .spawn();
+                                    }
+                                })),
+                        );
+                    }
+
+                    // Configurar plugin
+                    if p.local_wasm_path.is_some() {
+                        actions = actions.child(
+                            div()
+                                .id(("configure-plugin-btn", i))
+                                .px(px(8.0))
+                                .py(px(4.0))
+                                .rounded(px(4.0))
+                                .bg(rgb(0x2a_4a_2a))
+                                .text_xs()
+                                .text_color(green)
+                                .cursor_pointer()
+                                .child("Configurar")
+                                .on_click(cx.listener(move |this, _ev, _window, cx| {
+                                    cx.stop_propagation();
+                                    if i >= this.installed_plugins.len() {
+                                        return;
+                                    }
+                                    let installed = this.installed_plugins[i].clone();
+                                    let wasm_path =
+                                        installed.local_wasm_path.clone().unwrap_or_default();
+                                    match crate::plugin::load_installed_plugin(&installed) {
+                                        Ok(plugin) => {
+                                            tracing::warn!(
+                                                "plugin loaded: {}, has get_config? {}",
+                                                plugin.manifest.id,
+                                                plugin.has_function("get_config")
+                                            );
+                                            match plugin.get_config() {
+                                                Ok(json_str) => {
+                                                    tracing::warn!(
+                                                        "get_config OK, len={}",
+                                                        json_str.len()
+                                                    );
+                                                    if let Ok(val) =
+                                                        serde_json::from_str::<serde_json::Value>(
+                                                            &json_str,
+                                                        )
+                                                    {
+                                                        let default_browser = val
+                                                            .get("default_browser")
+                                                            .and_then(|v| v.as_str())
+                                                            .unwrap_or("")
+                                                            .to_string();
+                                                        let default_profile = val
+                                                            .get("default_profile")
+                                                            .and_then(|v| v.as_str())
+                                                            .unwrap_or("")
+                                                            .to_string();
+                                                        let rules = val
+                                                            .get("rules")
+                                                            .and_then(|v| v.as_array())
+                                                            .map(|arr| {
+                                                                arr.iter()
+                                                                    .map(|r| ConfigRuleForm {
+                                                                        domain_pattern: r
+                                                                            .get("domain_pattern")
+                                                                            .and_then(|v| {
+                                                                                v.as_str()
+                                                                            })
+                                                                            .unwrap_or("")
+                                                                            .to_string(),
+                                                                        browser: r
+                                                                            .get("browser")
+                                                                            .and_then(|v| {
+                                                                                v.as_str()
+                                                                            })
+                                                                            .unwrap_or("")
+                                                                            .to_string(),
+                                                                        profile: r
+                                                                            .get("profile")
+                                                                            .and_then(|v| {
+                                                                                v.as_str()
+                                                                            })
+                                                                            .unwrap_or("")
+                                                                            .to_string(),
+                                                                    })
+                                                                    .collect()
+                                                            })
+                                                            .unwrap_or_default();
+                                                        this.config_plugin_idx = i;
+                                                        this.config_default_browser =
+                                                            default_browser;
+                                                        this.config_default_profile =
+                                                            default_profile;
+                                                        this.config_rules = rules;
+                                                        this.config_focus_kind = 0;
+                                                        this.config_save_error = None;
+                                                        this.showing_config = true;
+                                                        cx.notify();
+                                                    } else {
+                                                        this.config_plugin_idx = i;
+                                                        this.config_save_error = Some(format!(
+                                                            "Error: JSON invalido del plugin: {}",
+                                                            &json_str[..json_str.len().min(200)]
+                                                        ));
+                                                        this.showing_config = true;
+                                                        cx.notify();
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    this.config_plugin_idx = i;
+                                                    this.config_save_error = Some(format!(
+                                                        "Error al leer config: {} (wasm: {})",
+                                                        e, wasm_path
+                                                    ));
+                                                    this.showing_config = true;
+                                                    cx.notify();
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            this.config_plugin_idx = i;
+                                            this.config_save_error = Some(format!(
+                                                "Error al cargar plugin: {} (wasm: {})",
+                                                e, wasm_path
+                                            ));
+                                            this.showing_config = true;
+                                            cx.notify();
+                                        }
+                                    }
+                                })),
+                        );
+                    }
+
+                    // Desinstalar
+                    actions = actions.child(
+                        div()
+                            .id(("uninstall-plugin-btn", i))
+                            .px(px(8.0))
+                            .py(px(4.0))
+                            .rounded(px(4.0))
+                            .bg(rgb(0x5a_1a_1a))
+                            .text_xs()
+                            .text_color(red)
+                            .cursor_pointer()
+                            .child("Desinstalar")
+                            .on_click(cx.listener(move |this, _ev, _window, cx| {
+                                if i < this.installed_plugins.len() {
+                                    this.installed_plugins.remove(i);
+                                    this.expanded_plugin = None;
+                                    this.showing_config = false;
+                                    if let Ok(mut config) = crate::config::Config::load() {
+                                        config.installed_plugins = this.installed_plugins.clone();
+                                        let _ = config.save();
+                                    }
+                                    cx.notify();
+                                }
+                            })),
+                    );
+
+                    detail_col = detail_col.child(actions);
+                    col = col.child(detail_col);
+                }
+
+                col.into_any_element()
             })
             .collect();
 
@@ -494,6 +857,7 @@ impl DaemonSelector {
                                         .flex()
                                         .flex_col()
                                         .flex_grow()
+                                        .min_w(px(0.0))
                                         .child(
                                             div()
                                                 .text_sm()
@@ -501,7 +865,14 @@ impl DaemonSelector {
                                                 .text_color(text)
                                                 .child(name),
                                         )
-                                        .child(div().text_xs().text_color(text_dim).child(desc)),
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(text_dim)
+                                                .overflow_hidden()
+                                                .min_w(px(0.0))
+                                                .child(desc),
+                                        ),
                                 )
                                 .child(
                                     div()
@@ -550,6 +921,7 @@ impl DaemonSelector {
                                                     .as_ref()
                                                     .and_then(|v| v.iter().find(|(i, _)| i == &id))
                                                     .and_then(|(_, e)| e.description.clone()),
+                                                local_wasm_path: None,
                                             };
                                             this.installed_plugins.push(plugin.clone());
                                             if let Ok(mut config) = crate::config::Config::load() {
@@ -840,24 +1212,89 @@ impl DaemonSelector {
             // INSTALLED section
             .child(
                 div()
-                    .text_xs()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(text_dim)
-                    .child("INSTALADOS"),
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(text_dim)
+                            .flex_grow()
+                            .child("INSTALADOS"),
+                    )
+                    // Install Dev Plugin button
+                    .child(
+                        div()
+                            .id("install-dev-btn")
+                            .px(px(6.0))
+                            .py(px(2.0))
+                            .rounded(px(4.0))
+                            .bg(rgb(0x2d_6b_3a))
+                            .text_xs()
+                            .text_color(green)
+                            .cursor_pointer()
+                            .child("+ Dev")
+                            .on_click(cx.listener(|this, _ev, _window, cx| {
+                                if this.dev_plugin_loading {
+                                    return;
+                                }
+                                this.dev_plugin_loading = true;
+                                this.dev_plugin_error = None;
+                                cx.notify();
+
+                                match install_dev_plugin() {
+                                    Ok(plugin) => {
+                                        this.installed_plugins.push(plugin.clone());
+                                        if let Ok(mut config) = crate::config::Config::load() {
+                                            config.installed_plugins.push(plugin);
+                                            let _ = config.save();
+                                        }
+                                        this.dev_plugin_loading = false;
+                                        cx.notify();
+                                    }
+                                    Err(e) if e == "cancelado" => {
+                                        this.dev_plugin_loading = false;
+                                        cx.notify();
+                                    }
+                                    Err(e) => {
+                                        this.dev_plugin_error = Some(e);
+                                        this.dev_plugin_loading = false;
+                                        cx.notify();
+                                    }
+                                }
+                            })),
+                    ),
             )
-            .child(if self.installed_plugins.is_empty() {
+            .child(
+                if self.installed_plugins.is_empty() && self.dev_plugin_error.is_none() {
+                    div()
+                        .text_xs()
+                        .text_color(text_dim)
+                        .child("Aún no hay plugins instalados.")
+                        .into_any_element()
+                } else {
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .children(installed_rows)
+                        .into_any_element()
+                },
+            )
+            // Dev plugin error message
+            .child(if let Some(ref err) = self.dev_plugin_error {
                 div()
+                    .px(px(10.0))
+                    .py(px(6.0))
+                    .bg(rgb(0x3a_1a_1a))
+                    .rounded(px(6.0))
                     .text_xs()
-                    .text_color(text_dim)
-                    .child("Aún no hay plugins instalados.")
+                    .text_color(red)
+                    .child(format!("Error: {}", err))
                     .into_any_element()
             } else {
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .children(installed_rows)
-                    .into_any_element()
+                div().into_any_element()
             })
             // CHANNEL section
             .child(div().h(px(1.0)).bg(rgb(0x3a_3a_3a)).mt(px(4.0)))
@@ -982,6 +1419,579 @@ impl DaemonSelector {
 
         panel.into_any_element()
     }
+
+    // ── Config UI ─────────────────────────────────────────────────────
+
+    /// Guarda la configuracion del plugin llamando a set_config() en el WASM.
+    fn save_config(&mut self, cx: &mut gpui::Context<Self>) {
+        let idx = self.config_plugin_idx;
+        if idx >= self.installed_plugins.len() {
+            self.config_save_error = Some("Plugin not found".to_string());
+            cx.notify();
+            return;
+        }
+
+        // Construir JSON con los valores del formulario
+        let rules: Vec<serde_json::Value> = self
+            .config_rules
+            .iter()
+            .map(|r| {
+                let mut obj = serde_json::json!({
+                    "domain_pattern": r.domain_pattern,
+                    "browser": r.browser,
+                });
+                if !r.profile.is_empty() {
+                    obj.as_object_mut().unwrap().insert(
+                        "profile".to_string(),
+                        serde_json::Value::String(r.profile.clone()),
+                    );
+                }
+                obj
+            })
+            .collect();
+
+        let config_json = serde_json::json!({
+            "rules": rules,
+            "default_browser": if self.config_default_browser.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::Value::String(self.config_default_browser.clone())
+            },
+            "default_profile": if self.config_default_profile.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::Value::String(self.config_default_profile.clone())
+            },
+        });
+
+        let json_str = serde_json::to_string_pretty(&config_json).unwrap();
+
+        match crate::plugin::load_installed_plugin(&self.installed_plugins[idx]) {
+            Ok(plugin) => match plugin.set_config(&json_str) {
+                Ok(resp) => {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&resp) {
+                        if val.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                            self.showing_config = false;
+                            self.config_save_error = None;
+                        } else {
+                            let err = val
+                                .get("error")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown error");
+                            self.config_save_error = Some(err.to_string());
+                        }
+                    } else {
+                        self.config_save_error = Some(format!("Respuesta invalida: {}", resp));
+                    }
+                    cx.notify();
+                }
+                Err(e) => {
+                    self.config_save_error = Some(format!("Error al guardar: {}", e));
+                    cx.notify();
+                }
+            },
+            Err(e) => {
+                self.config_save_error = Some(format!("Error al cargar plugin: {}", e));
+                cx.notify();
+            }
+        }
+    }
+
+    /// Renderiza el panel de configuracion del plugin.
+    fn render_config_panel(
+        &mut self,
+        text: gpui::Rgba,
+        text_dim: gpui::Rgba,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        use gpui::IntoElement;
+
+        let accent = rgb(0x4a_90_d9);
+        let badge_bg = rgb(0x3a_3a_3a);
+        let green = rgb(0x34_c7_59);
+        let red = rgb(0xff_45_45);
+        let field_bg = rgb(0x22_22_22);
+        let field_focus_bg = rgb(0x38_38_38);
+
+        let plugin_name = self
+            .installed_plugins
+            .get(self.config_plugin_idx)
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
+
+        // Helper: construye display string para campo editable
+        fn field_display(value: &str, focused: bool, placeholder: &str) -> String {
+            if value.is_empty() {
+                if focused {
+                    "|".to_string()
+                } else {
+                    placeholder.to_string()
+                }
+            } else if focused {
+                format!("{}|", value)
+            } else {
+                value.to_string()
+            }
+        }
+
+        // ── Panel scrollable ────────────────────────────────────────
+        let mut panel = div()
+            .id("config-panel")
+            .flex()
+            .flex_col()
+            .flex_grow()
+            .overflow_y_scroll()
+            .gap_3()
+            .px(px(14.0))
+            .pt(px(12.0))
+            .pb(px(8.0))
+            // Header
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(text)
+                            .flex_grow()
+                            .child(format!("Configurar: {}", plugin_name)),
+                    )
+                    .child(
+                        div()
+                            .id("config-close")
+                            .size(px(20.0))
+                            .rounded(px(10.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(badge_bg)
+                            .text_xs()
+                            .text_color(text_dim)
+                            .cursor_pointer()
+                            .child("✕")
+                            .on_click(cx.listener(|this, _ev, _window, cx| {
+                                this.showing_config = false;
+                                this.config_save_error = None;
+                                cx.notify();
+                            })),
+                    ),
+            );
+
+        // Default browser - select dropdown
+        let default_browser_display = if self.config_default_browser.is_empty() {
+            "Select browser…".to_string()
+        } else {
+            format!("{} ", self.config_default_browser)
+        };
+        let mut db_row = div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(text_dim)
+                    .child("Default Browser"),
+            )
+            .child(
+                div()
+                    .id("cfg-default-browser")
+                    .px(px(8.0))
+                    .py(px(4.0))
+                    .bg(if self.config_focus_kind == 1 {
+                        field_focus_bg
+                    } else {
+                        field_bg
+                    })
+                    .rounded(px(4.0))
+                    .flex_grow()
+                    .min_w(px(40.0))
+                    .text_xs()
+                    .text_color(text)
+                    .cursor_pointer()
+                    .child(default_browser_display)
+                    .on_click(cx.listener(|this, _ev, _window, cx| {
+                        this.config_focus_kind = 1;
+                        this.config_browser_dropdown_idx = 0;
+                        cx.notify();
+                    })),
+            );
+        if self.config_focus_kind == 1 && !self.items.is_empty() {
+            let mut dd = div()
+                .flex()
+                .flex_col()
+                .mx(px(4.0))
+                .rounded(px(4.0))
+                .overflow_hidden()
+                .bg(rgb(0x2a_2a_2e));
+            for (di, (name, _browser)) in self.items.iter().enumerate() {
+                let is_hl = di == self.config_browser_dropdown_idx;
+                let browser_name = name.to_string();
+                let mut dd_item = div()
+                    .id(("cfg-browser-opt", di))
+                    .px(px(8.0))
+                    .py(px(4.0))
+                    .text_xs()
+                    .text_color(text);
+                if is_hl {
+                    dd_item = dd_item.bg(rgb(0x3a_3a_3e));
+                }
+                let bn_display = browser_name.clone();
+                let dd_item = dd_item
+                    .cursor_pointer()
+                    .child(bn_display)
+                    .on_click(cx.listener(move |this, _ev, _window, cx| {
+                        this.config_default_browser = browser_name.clone();
+                        this.config_focus_kind = 2;
+                        cx.notify();
+                    }));
+                dd = dd.child(dd_item);
+            }
+            db_row = db_row.child(dd);
+        }
+        panel = panel.child(db_row);
+
+        // Default profile
+        panel = panel.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(text_dim)
+                        .child("Default Profile"),
+                )
+                .child({
+                    let display = field_display(
+                        &self.config_default_profile,
+                        self.config_focus_kind == 2,
+                        "default…",
+                    );
+                    div()
+                        .id("cfg-default-profile")
+                        .px(px(8.0))
+                        .py(px(4.0))
+                        .bg(if self.config_focus_kind == 2 {
+                            field_focus_bg
+                        } else {
+                            field_bg
+                        })
+                        .rounded(px(4.0))
+                        .flex_grow()
+                        .min_w(px(40.0))
+                        .text_xs()
+                        .text_color(text)
+                        .cursor_pointer()
+                        .child(display)
+                        .on_click(cx.listener(|this, _ev, _window, cx| {
+                            this.config_focus_kind = 2;
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                }),
+        );
+
+        // Rules header
+        panel = panel.child(
+            div()
+                .text_xs()
+                .font_weight(FontWeight::BOLD)
+                .text_color(text_dim)
+                .child("Rules"),
+        );
+
+        // Cada regla
+        let rules_len = self.config_rules.len();
+        for ri in 0..rules_len {
+            let rule = &self.config_rules[ri];
+            let focused = self.config_focus_kind == 3 && self.config_focus_rule == ri;
+            let f_domain = focused && self.config_focus_field == 0;
+            let f_browser = focused && self.config_focus_field == 1;
+            let f_profile = focused && self.config_focus_field == 2;
+
+            let val_domain = rule.domain_pattern.clone();
+            let val_browser = rule.browser.clone();
+            let val_profile = rule.profile.clone();
+
+            let mut row = div().id(("cfg-rule-row", ri)).flex().items_center().gap_1();
+
+            // Domain
+            row = row.child({
+                let d = field_display(&val_domain, f_domain, "domain");
+                div()
+                    .id(("cfg-rule-{}-domain", ri))
+                    .px(px(8.0))
+                    .py(px(4.0))
+                    .bg(if f_domain { field_focus_bg } else { field_bg })
+                    .rounded(px(4.0))
+                    .flex_grow()
+                    .min_w(px(40.0))
+                    .text_xs()
+                    .text_color(text)
+                    .cursor_pointer()
+                    .child(d)
+                    .on_click(cx.listener(move |this, _ev, _window, cx| {
+                        this.config_focus_kind = 3;
+                        this.config_focus_rule = ri;
+                        this.config_focus_field = 0;
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            });
+
+            row = row.child(div().text_xs().text_color(text_dim).child("→"));
+
+            // Browser - select dropdown
+            let browser_display = if val_browser.is_empty() {
+                "Select…".to_string()
+            } else {
+                val_browser.clone()
+            };
+            let is_browser_focused = f_browser;
+            let mut browser_cell = div().flex().flex_col().flex_grow().child(
+                div()
+                    .id(("cfg-rule-{}-browser", ri))
+                    .px(px(8.0))
+                    .py(px(4.0))
+                    .bg(if is_browser_focused {
+                        field_focus_bg
+                    } else {
+                        field_bg
+                    })
+                    .rounded(px(4.0))
+                    .min_w(px(40.0))
+                    .text_xs()
+                    .text_color(text)
+                    .cursor_pointer()
+                    .child(browser_display)
+                    .on_click(cx.listener(move |this, _ev, _window, cx| {
+                        this.config_focus_kind = 3;
+                        this.config_focus_rule = ri;
+                        this.config_focus_field = 1;
+                        this.config_browser_dropdown_idx = 0;
+                        cx.notify();
+                    })),
+            );
+            if is_browser_focused && !self.items.is_empty() {
+                let mut dd = div()
+                    .flex()
+                    .flex_col()
+                    .mx(px(4.0))
+                    .rounded(px(4.0))
+                    .overflow_hidden()
+                    .bg(rgb(0x2a_2a_2e));
+                for (di, (n, _)) in self.items.iter().enumerate() {
+                    let is_hl = di == self.config_browser_dropdown_idx;
+                    let browser_name = n.to_string();
+                    let flat_id = ri * 10000 + di;
+                    let mut dd_item = div()
+                        .id(("cfg-rbo", flat_id))
+                        .px(px(8.0))
+                        .py(px(4.0))
+                        .text_xs()
+                        .text_color(text);
+                    if is_hl {
+                        dd_item = dd_item.bg(rgb(0x3a_3a_3e));
+                    }
+                    let bn_display = browser_name.clone();
+                    dd_item = dd_item
+                        .cursor_pointer()
+                        .child(bn_display)
+                        .on_click(cx.listener(move |this, _ev, _window, cx| {
+                            this.config_focus_kind = 3;
+                            this.config_focus_rule = ri;
+                            this.config_focus_field = 2;
+                            this.config_rules[ri].browser = browser_name.clone();
+                            cx.notify();
+                        }));
+                    dd = dd.child(dd_item);
+                }
+                browser_cell = browser_cell.child(dd);
+            }
+            row = row.child(browser_cell.into_any_element());
+
+            // Profile
+            row = row.child({
+                let d = field_display(&val_profile, f_profile, "profile");
+                div()
+                    .id(("cfg-rule-{}-profile", ri))
+                    .px(px(8.0))
+                    .py(px(4.0))
+                    .bg(if f_profile { field_focus_bg } else { field_bg })
+                    .rounded(px(4.0))
+                    .flex_grow()
+                    .min_w(px(40.0))
+                    .text_xs()
+                    .text_color(text)
+                    .cursor_pointer()
+                    .child(d)
+                    .on_click(cx.listener(move |this, _ev, _window, cx| {
+                        this.config_focus_kind = 3;
+                        this.config_focus_rule = ri;
+                        this.config_focus_field = 2;
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            });
+
+            // Remove button
+            row = row.child(
+                div()
+                    .id(("cfg-rule-remove", ri))
+                    .size(px(18.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_xs()
+                    .text_color(red)
+                    .cursor_pointer()
+                    .child("✕")
+                    .on_click(cx.listener(move |this, _ev, _window, cx| {
+                        if ri < this.config_rules.len() {
+                            this.config_rules.remove(ri);
+                            if this.config_focus_kind == 3 {
+                                if this.config_focus_rule == ri && this.config_focus_rule > 0 {
+                                    this.config_focus_rule -= 1;
+                                } else if this.config_focus_rule >= this.config_rules.len() {
+                                    this.config_focus_rule =
+                                        this.config_rules.len().saturating_sub(1);
+                                }
+                            }
+                            cx.notify();
+                        }
+                    })),
+            );
+
+            panel = panel.child(row);
+        }
+
+        // Add rule button
+        panel = panel.child(
+            div()
+                .id("cfg-add-rule")
+                .flex()
+                .items_center()
+                .justify_center()
+                .px(px(8.0))
+                .py(px(6.0))
+                .bg(rgb(0x22_2a_22))
+                .rounded(px(4.0))
+                .text_xs()
+                .text_color(green)
+                .cursor_pointer()
+                .child("+ Add Rule")
+                .on_click(cx.listener(|this, _ev, _window, cx| {
+                    this.config_rules.push(ConfigRuleForm {
+                        domain_pattern: String::new(),
+                        browser: String::new(),
+                        profile: String::new(),
+                    });
+                    let last = this.config_rules.len() - 1;
+                    this.config_focus_kind = 3;
+                    this.config_focus_rule = last;
+                    this.config_focus_field = 0;
+                    cx.notify();
+                })),
+        );
+
+        // Error message
+        if let Some(ref err) = self.config_save_error {
+            let err_clone = err.clone();
+            panel = panel.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px(px(8.0))
+                    .py(px(4.0))
+                    .bg(rgb(0x3a_1a_1a))
+                    .rounded(px(4.0))
+                    .child(
+                        div()
+                            .flex_grow()
+                            .text_xs()
+                            .text_color(red)
+                            .overflow_hidden()
+                            .child(err.clone()),
+                    )
+                    .child(
+                        div()
+                            .id("copy-error-btn")
+                            .px(px(4.0))
+                            .py(px(1.0))
+                            .rounded(px(3.0))
+                            .bg(rgb(0x5a_3a_3a))
+                            .text_xs()
+                            .text_color(red)
+                            .cursor_pointer()
+                            .child("copy")
+                            .on_click(cx.listener(move |_this, _ev, _window, _cx| {
+                                #[cfg(target_os = "macos")]
+                                {
+                                    use std::process::{Command, Stdio};
+                                    let mut child = Command::new("pbcopy")
+                                        .stdin(Stdio::piped())
+                                        .spawn()
+                                        .expect("failed to launch pbcopy");
+                                    use std::io::Write;
+                                    let _ = child.stdin.take().map(|mut stdin| {
+                                        let _ = stdin.write_all(err_clone.as_bytes());
+                                    });
+                                    let _ = child.wait();
+                                }
+                            })),
+                    ),
+            );
+        }
+
+        // Save + Cancel buttons
+        panel = panel.child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .id("config-save-btn")
+                        .flex_grow()
+                        .px(px(8.0))
+                        .py(px(4.0))
+                        .bg(accent)
+                        .rounded(px(4.0))
+                        .text_xs()
+                        .text_color(rgb(0xff_ff_ff))
+                        .cursor_pointer()
+                        .child("Save")
+                        .on_click(cx.listener(|this, _ev, _window, cx| {
+                            this.save_config(cx);
+                        })),
+                )
+                .child(
+                    div()
+                        .id("config-cancel-btn")
+                        .px(px(8.0))
+                        .py(px(4.0))
+                        .bg(badge_bg)
+                        .rounded(px(4.0))
+                        .text_xs()
+                        .text_color(text_dim)
+                        .cursor_pointer()
+                        .child("Cancel")
+                        .on_click(cx.listener(|this, _ev, _window, cx| {
+                            this.showing_config = false;
+                            this.config_save_error = None;
+                            cx.notify();
+                        })),
+                ),
+        );
+
+        panel.into_any_element()
+    }
 }
 
 impl gpui::Render for DaemonSelector {
@@ -1004,7 +2014,14 @@ impl gpui::Render for DaemonSelector {
         let editing = self.editing_hotkey;
         let hovered = self.hovered_key;
 
-        let url_display = self.url.clone();
+        let url_str = self.url.as_ref();
+        let url_display: gpui::SharedString = if url_str.is_empty() {
+            "Browseraptor".into()
+        } else if url_str.len() > 52 {
+            format!("{}…", &url_str[..52]).into()
+        } else {
+            self.url.clone()
+        };
 
         let rows: Vec<_> = self
             .items
@@ -1014,6 +2031,7 @@ impl gpui::Render for DaemonSelector {
                 let is_sel = i == selected;
                 let is_editing = editing == Some(i);
                 let is_hovered = hovered == Some(i);
+                let is_icon_hovered = self.hovered_icon == Some(i);
                 let row_bg = if is_sel { row_hover } else { row_normal };
                 let name = name.clone();
                 let browser = browser.clone();
@@ -1066,7 +2084,59 @@ impl gpui::Render for DaemonSelector {
                     .rounded(px(10.0))
                     .bg(row_bg)
                     .cursor_pointer()
-                    .child(daemon_browser_icon(&browser))
+                    .child(if is_icon_hovered {
+                        div()
+                            .id(("icon-remove", i))
+                            .size(px(32.0))
+                            .rounded(px(6.0))
+                            .bg(rgb(0x5a_1a_1a))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(rgb(0xff_45_45))
+                            .text_sm()
+                            .font_weight(FontWeight::BOLD)
+                            .cursor_pointer()
+                            .child("✕")
+                            .on_mouse_move(cx.listener(move |this, _ev, _window, cx| {
+                                if this.hovered_icon != Some(i) {
+                                    this.hovered_icon = Some(i);
+                                    cx.notify();
+                                }
+                                cx.stop_propagation();
+                            }))
+                            .on_mouse_up(
+                                gpui::MouseButton::Left,
+                                cx.listener(move |this, _ev, _window, cx| {
+                                    if i < this.items.len() {
+                                        let name = this.items[i].1.name().to_owned();
+                                        this.items.remove(i);
+                                        this.hovered_icon = None;
+                                        if i <= this.selected_idx && this.selected_idx > 0 {
+                                            this.selected_idx -= 1;
+                                        }
+                                        // Remove from config
+                                        if let Ok(mut config) = crate::config::Config::load() {
+                                            config.custom_browsers.retain(|b| b.name() != name);
+                                            let _ = config.save();
+                                        }
+                                        cx.notify();
+                                    }
+                                }),
+                            )
+                            .into_any_element()
+                    } else {
+                        div()
+                            .on_mouse_move(cx.listener(move |this, _ev, _window, cx| {
+                                if this.hovered_icon != Some(i) {
+                                    this.hovered_icon = Some(i);
+                                    cx.notify();
+                                }
+                                cx.stop_propagation();
+                            }))
+                            .child(daemon_browser_icon(&browser))
+                            .into_any_element()
+                    })
                     .child(
                         div()
                             .flex_grow()
@@ -1191,8 +2261,9 @@ impl gpui::Render for DaemonSelector {
             .overflow_hidden()
             .track_focus(&self.focus_handle)
             .on_mouse_move(cx.listener(|this, _ev, _window, cx| {
-                if this.hovered_key.is_some() {
+                if this.hovered_key.is_some() || this.hovered_icon.is_some() {
                     this.hovered_key = None;
+                    this.hovered_icon = None;
                     cx.notify();
                 }
             }))
@@ -1230,6 +2301,215 @@ impl gpui::Render for DaemonSelector {
                     if let Ok(mut config) = crate::config::Config::load() {
                         config.hotkeys.insert(browser_name, label);
                         let _ = config.save();
+                    }
+                    return;
+                }
+
+                // ── Config form editing mode ──────────────────────────
+                if this.showing_config {
+                    match key.as_str() {
+                        "escape" => {
+                            if this.config_focus_kind == 1
+                                || (this.config_focus_kind == 3 && this.config_focus_field == 1)
+                            {
+                                // Close dropdown without selecting
+                                this.config_focus_kind = 0;
+                            } else {
+                                this.showing_config = false;
+                                this.config_save_error = None;
+                            }
+                            cx.notify();
+                        }
+                        "backspace" => {
+                            match this.config_focus_kind {
+                                1 => {}
+                                2 => {
+                                    this.config_default_profile.pop();
+                                }
+                                3 => {
+                                    let r = this.config_focus_rule;
+                                    if r < this.config_rules.len() {
+                                        match this.config_focus_field {
+                                            0 => {
+                                                this.config_rules[r].domain_pattern.pop();
+                                            }
+                                            1 => {}
+                                            _ => {
+                                                this.config_rules[r].profile.pop();
+                                            }
+                                        };
+                                    }
+                                }
+                                _ => {}
+                            }
+                            cx.notify();
+                        }
+                        "tab" => {
+                            // Cycle focus: default_browser → default_profile → rules → wrap
+                            match this.config_focus_kind {
+                                0 | 1 => {
+                                    // Select current browser in dropdown, move to profile
+                                    if !this.items.is_empty()
+                                        && this.config_browser_dropdown_idx < this.items.len()
+                                    {
+                                        this.config_default_browser = this.items
+                                            [this.config_browser_dropdown_idx]
+                                            .0
+                                            .to_string();
+                                    }
+                                    this.config_focus_kind = 2;
+                                }
+                                2 => {
+                                    if !this.config_rules.is_empty() {
+                                        this.config_focus_kind = 3;
+                                        this.config_focus_rule = 0;
+                                        this.config_focus_field = 0;
+                                    } else {
+                                        this.config_focus_kind = 1;
+                                    }
+                                }
+                                3 => {
+                                    if this.config_focus_field == 1 {
+                                        // Select browser in dropdown, move to profile
+                                        if !this.items.is_empty()
+                                            && this.config_browser_dropdown_idx < this.items.len()
+                                        {
+                                            this.config_rules[this.config_focus_rule].browser =
+                                                this.items[this.config_browser_dropdown_idx]
+                                                    .0
+                                                    .to_string();
+                                        }
+                                        this.config_focus_field = 2;
+                                    } else if this.config_focus_field < 2 {
+                                        this.config_focus_field += 1;
+                                    } else if this.config_focus_rule + 1 < this.config_rules.len() {
+                                        this.config_focus_rule += 1;
+                                        this.config_focus_field = 0;
+                                    } else {
+                                        this.config_focus_kind = 1;
+                                    }
+                                }
+                                _ => {
+                                    this.config_focus_kind = 1;
+                                }
+                            }
+                            cx.notify();
+                        }
+                        "return" | "enter" => {
+                            if this.config_focus_kind == 1 && !this.items.is_empty() {
+                                // Select browser from dropdown, move to profile
+                                if this.config_browser_dropdown_idx < this.items.len() {
+                                    this.config_default_browser =
+                                        this.items[this.config_browser_dropdown_idx].0.to_string();
+                                }
+                                this.config_focus_kind = 2;
+                                cx.notify();
+                                return;
+                            }
+                            if this.config_focus_kind == 3
+                                && this.config_focus_field == 1
+                                && !this.items.is_empty()
+                            {
+                                // Select browser in rule dropdown, move to profile
+                                if this.config_browser_dropdown_idx < this.items.len() {
+                                    this.config_rules[this.config_focus_rule].browser =
+                                        this.items[this.config_browser_dropdown_idx].0.to_string();
+                                }
+                                this.config_focus_field = 2;
+                                cx.notify();
+                                return;
+                            }
+                            // Save and close
+                            this.save_config(cx);
+                        }
+                        "up" | "arrowup" => {
+                            if !this.items.is_empty()
+                                && (this.config_focus_kind == 1
+                                    || (this.config_focus_kind == 3
+                                        && this.config_focus_field == 1))
+                            {
+                                if this.config_browser_dropdown_idx > 0 {
+                                    this.config_browser_dropdown_idx -= 1;
+                                } else {
+                                    this.config_browser_dropdown_idx = this.items.len() - 1;
+                                }
+                                cx.notify();
+                                return;
+                            }
+                        }
+                        "down" | "arrowdown" => {
+                            if !this.items.is_empty()
+                                && (this.config_focus_kind == 1
+                                    || (this.config_focus_kind == 3
+                                        && this.config_focus_field == 1))
+                            {
+                                if this.config_browser_dropdown_idx + 1 < this.items.len() {
+                                    this.config_browser_dropdown_idx += 1;
+                                } else {
+                                    this.config_browser_dropdown_idx = 0;
+                                }
+                                cx.notify();
+                                return;
+                            }
+                        }
+                        k if k.len() == 1
+                            && !ev.keystroke.modifiers.platform
+                            && !ev.keystroke.modifiers.control =>
+                        {
+                            let ch = if ev.keystroke.modifiers.shift {
+                                k.to_uppercase()
+                            } else {
+                                k.to_string()
+                            };
+                            match this.config_focus_kind {
+                                0 | 1 => {
+                                    // Typing in default_browser: try to match browser name
+                                    this.config_focus_kind = 1;
+                                    this.config_default_browser.push_str(&ch);
+                                    // Auto-highlight first matching browser in dropdown
+                                    let query = this.config_default_browser.to_lowercase();
+                                    if !query.is_empty() {
+                                        for (di, (n, _)) in this.items.iter().enumerate() {
+                                            if n.to_lowercase().starts_with(&query) {
+                                                this.config_browser_dropdown_idx = di;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                2 => {
+                                    this.config_default_profile.push_str(&ch);
+                                }
+                                3 => {
+                                    let r = this.config_focus_rule;
+                                    if r < this.config_rules.len() {
+                                        match this.config_focus_field {
+                                            0 => this.config_rules[r].domain_pattern.push_str(&ch),
+                                            1 => {
+                                                // Typing in rule browser: auto-highlight matching
+                                                this.config_rules[r].browser.push_str(&ch);
+                                                let query =
+                                                    this.config_rules[r].browser.to_lowercase();
+                                                if !query.is_empty() {
+                                                    for (di, (n, _)) in
+                                                        this.items.iter().enumerate()
+                                                    {
+                                                        if n.to_lowercase().starts_with(&query) {
+                                                            this.config_browser_dropdown_idx = di;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            _ => this.config_rules[r].profile.push_str(&ch),
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                            cx.notify();
+                        }
+                        _ => {}
                     }
                     return;
                 }
@@ -1365,7 +2645,9 @@ impl gpui::Render for DaemonSelector {
             }))
             // main content: browser list, settings or plugin search
             .child({
-                let content: gpui::AnyElement = if self.show_plugin_search {
+                let content: gpui::AnyElement = if self.showing_config {
+                    self.render_config_panel(text, text_dim, cx)
+                } else if self.show_plugin_search {
                     self.render_plugin_panel(text, text_dim, cx)
                 } else {
                     div()
@@ -1434,6 +2716,8 @@ impl gpui::Render for DaemonSelector {
                     .child(
                         div()
                             .flex_grow()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
                             .text_color(text_dim)
                             .text_sm()
                             .child(url_display),
@@ -1688,6 +2972,53 @@ fn pick_browser_app() -> Option<String> {
     {
         None
     }
+}
+
+/// Muestra un dialogo nativo para seleccionar un archivo `.wasm`.
+/// Retorna la ruta completa o `None` si se cancela.
+fn pick_wasm_file() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        let output = Command::new("osascript")
+            .args([
+                "-e",
+                "set f to choose file with prompt \"Select Plugin WASM File\"",
+                "-e",
+                "if f is not false then return POSIX path of f",
+            ])
+            .output()
+            .ok()?;
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if path.is_empty() {
+                None
+            } else {
+                Some(path)
+            }
+        } else {
+            None
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// Instala un plugin de desarrollo:
+/// 1. Abre un dialogo para seleccionar el `.wasm`
+/// 2. Lee el `manifest.json` del mismo directorio
+/// 3. Valida el modulo WASM
+/// 4. Retorna el `InstalledPlugin` listo para registrar
+fn install_dev_plugin() -> Result<crate::plugin::InstalledPlugin, String> {
+    let wasm_path = match pick_wasm_file() {
+        Some(p) => p,
+        None => return Err("cancelado".to_string()),
+    };
+
+    crate::plugin::load_dev_plugin_from_path(&wasm_path)
+        .map_err(|e| format!("Error al cargar plugin: {}", e))
 }
 
 /// Extract the display name from a .app bundle's Info.plist.

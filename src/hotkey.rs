@@ -104,7 +104,8 @@ fn start_hotkey_listener_macos(tx: mpsc::Sender<AppCommand>) {
     });
 
     let mask = NSEventMask::KeyDown;
-    let _monitor = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &block);
+    let monitor = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &block);
+    std::mem::forget(monitor);
 }
 
 #[cfg(target_os = "macos")]
