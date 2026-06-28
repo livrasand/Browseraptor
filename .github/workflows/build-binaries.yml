@@ -64,7 +64,7 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           override: true
 
       - name: Build (Linux)
@@ -102,11 +102,6 @@ jobs:
           $zipPath = Join-Path -Path "dist" -ChildPath "Browseraptor-windows.zip"
           if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
           Compress-Archive -Path (Join-Path -Path "dist" -ChildPath "*") -DestinationPath $zipPath -Force
-
-      - name: Install Metal Toolchain (macOS)
-        if: ${{ matrix.os == 'macos-latest' }}
-        run: |
-          xcodebuild -downloadComponent MetalToolchain
 
       - name: Build (macOS)
         if: ${{ matrix.os == 'macos-latest' }}
