@@ -62,9 +62,10 @@ jobs:
           fetch-depth: 0
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
+          override: true
 
       - name: Build (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
@@ -99,7 +100,7 @@ jobs:
           if [ -d assets ]; then cp -R assets dist/ || true; fi
 
           # Empaquetar también una copia comprimida
-          tar -C dist -czf dist/Browseraptor-linux.tar.gz .
+          cd dist && tar -czf ../Browseraptor-linux.tar.gz . && cd ..
 
       - name: Build (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
