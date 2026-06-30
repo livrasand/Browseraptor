@@ -7,6 +7,7 @@ mod default_browser;
 mod hotkey;
 mod plugin;
 mod single_instance;
+#[cfg(target_os = "macos")]
 mod tray;
 mod ui;
 
@@ -249,9 +250,11 @@ fn run_daemon_with_url(initial_url: Option<String>) {
         });
     }
     gpui_app.run(move |cx: &mut gpui::App| {
-        // Setup tray icon with Quit menu
+        #[cfg(target_os = "macos")]
         crate::tray::setup_tray();
-        tracing::info!("Tray icon setup");
+
+        #[cfg(not(target_os = "macos"))]
+        tracing::info!("Tray icon not available");
 
         hotkey::start_hotkey_listener(tx.clone());
         tracing::info!("Hotkey listener started");

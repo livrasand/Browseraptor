@@ -1,9 +1,9 @@
 use cocoa::appkit::{NSStatusBar, NSVariableStatusItemLength};
-use cocoa::base::{YES, id, nil};
+use cocoa::base::{id, nil, YES};
 use cocoa::foundation::NSString;
 use objc::{msg_send, sel, sel_impl};
-use std::sync::atomic::{AtomicPtr, Ordering};
 use std::ptr;
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 static TRAY_ITEM: AtomicPtr<objc::runtime::Object> = AtomicPtr::new(ptr::null_mut());
 
