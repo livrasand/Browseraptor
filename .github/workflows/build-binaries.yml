@@ -62,18 +62,34 @@ jobs:
           fetch-depth: 0
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
-          override: true
 
       - name: Build (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
           set -eux
-          # Opcional: instalar dependencias del sistema si tu crate las necesita
-          # sudo apt-get update
-          # sudo apt-get install -y libgtk-3-dev libssl-dev
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxcb-composite0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxcb-cursor-dev \
+            libxcb-keysyms1-dev \
+            libxcb-util-dev \
+            libxcb-icccm4-dev \
+            libxcb-randr0-dev \
+            libxcb-render0-dev \
+            libxfixes-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libvulkan-dev \
+            libfontconfig-dev \
+            libharfbuzz-dev \
+            libclang-dev \
+            pkg-config
 
           cargo build --release --locked
 
