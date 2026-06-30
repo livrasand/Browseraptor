@@ -172,7 +172,11 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
           mkdir -p release
-          find artifacts -type f -exec cp {} release/ \;
+          # Copiar solo los archivos de distribucion (zip, tar.gz, binarios)
+          # Excluye los internos del .app bundle limitando profundidad
+          find artifacts -maxdepth 3 -type f \
+            \( -name "*.zip" -o -name "*.tar.gz" -o -name "browseraptor" -o -name "browseraptor.exe" \) \
+            -exec cp {} release/ \;
           cd release
           echo ""
           echo "=== SHA256 checksums ==="
@@ -184,8 +188,11 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -eux
+          # Generar body desde RELEASE.md reemplazando version placeholder
+          sed "s/1.0.0/${VERSION#v}/" RELEASE.md > /tmp/release-body.md
+
           gh release create "$VERSION" \
-            --title "Release $VERSION" \
-            --generate-notes \
+            --title "Browseraptor $VERSION" \
+            --notes-file /tmp/release-body.md \
             --repo "$GITHUB_REPOSITORY" \
             release/*
