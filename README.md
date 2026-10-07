@@ -1,128 +1,135 @@
-<img src="./assets/browseraptor-logo.png" alt="logo" width="100" height="100" align="right" />
+<div align="center">
+
+<img src="./assets/browseraptor-logo.png" alt="Browseraptor Logo" width="120" height="120" />
 
 # Browseraptor
 
-Browseraptor is a tiny, cross-platform Rust application that lets you quickly choose which browser to open a link with, and includes a plugin system — it intercepts links system-wide and routes them to the right browser based on your own rules. Written in Rust for speed and safety.
+**A blazingly fast, cross-platform link prompt & browser router built in Rust.**
 
-<img src="./assets/screenshot.png" alt="screenshot" />
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://mozilla.org/MPL/2.0/)
+[![Rust](https://img.shields.io/badge/rust-nightly-orange.svg)](https://www.rust-lang.org/)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-blue.svg)](#install)
 
-Inspired by the incredible [Browserino](https://github.com/AlexStrNik/Browserino), but faster, safer and customizable thanks to Rust. 
+</div>
 
-> **This project is in active development.** Features may change, and some things might break. If you run into a problem or have an idea, [open an issue](https://github.com/livrasand/Browseraptor/issues). Contributions are welcome!
+---
 
-> [!NOTE]
-> This software is currently in pre-v1.0 version, which means it can frequently introduce breaking changes with new versions.
+<div align="center">
+  <img src="./assets/screenshot.png" alt="Browseraptor Screenshot" width="700" />
+</div>
+
+---
+
+## What is Browseraptor?
+
+**Browseraptor** intercepts HTTP/HTTPS links system-wide and prompts you to choose which browser, profile, or app to open them with. 
+
+Whether you keep personal and work profiles isolated, want domain-based routing rules, or need a plugin-extendable prompt, Browseraptor handles it with zero latency thanks to Rust.
+
+> Inspired by [Browserino](https://github.com/AlexStrNik/Browserino), redesigned from scratch for speed, safety, and deep system integration.
+
+---
+
+## Key Features
+
+- **Blazingly Fast:** Near-zero overhead and minimal memory footprint built in native Rust.
+- **Cross-Platform:** Seamless support for macOS, Linux, and Windows.
+- **Extensible Plugin System:** Write custom routing rules, URL transformations, or domain hooks.
+- **Privacy & Profile Isolation:** Easily route work links to Chrome/Brave and personal links to Firefox or Safari.
+
+---
 
 ## Install
 
-<a href="https://github.com/livrasand/Browseraptor/releases"><img src="https://raw.githubusercontent.com/rubenpgrady/get-it-on-github/refs/heads/main/get-it-on-github.png" alt="Get it on GitHub" height="96" />
+Download pre-compiled binaries for your operating system from the latest release:
+
+<a href="https://github.com/livrasand/Browseraptor/releases">
+  <img src="https://raw.githubusercontent.com/rubenpgrady/get-it-on-github/refs/heads/main/get-it-on-github.png" alt="Get it on GitHub" height="60" />
 </a>
 
-## Building from source
+---
 
-**Prerequisites:** Rust **nightly** toolchain (the project requires it via `rust-toolchain.toml`).
+## Building from Source
+
+### Prerequisites
+
+Browseraptor requires the **Rust nightly** toolchain.
 
 ```sh
-# Install Rust if you don't have it
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf [https://sh.rustup.rs](https://sh.rustup.rs) | sh
 
-# Install the nightly toolchain
+# Install nightly toolchain
 rustup toolchain install nightly
+
 ```
 
-### macOS
+### Build Instructions
+
+Requires Xcode Command Line Tools (`xcode-select --install`).
 
 ```sh
-git clone https://github.com/livrasand/Browseraptor.git
+git clone [https://github.com/livrasand/Browseraptor.git](https://github.com/livrasand/Browseraptor.git)
 cd Browseraptor 
 cargo build --release
-# Binary will be at: target/release/browseraptor
-```
 
-To build the `.app` bundle:
-
-```sh
+# Build .app bundle
 chmod +x bundle_macos.sh
 ./bundle_macos.sh
-# App will be at: dist/Browseraptor.app
+# Output: dist/Browseraptor.app
+
 ```
 
-> **Note:** Xcode Command Line Tools are required (`xcode-select --install`).
-
-### Linux
+Install system dependencies:
 
 ```sh
-git clone https://github.com/livrasand/Browseraptor.git
-cd Browseraptor
-cargo build --release
-# Binary will be at: target/release/browseraptor
-```
-
-Required system packages (Debian/Ubuntu):
-
-```sh
+# Debian / Ubuntu
 sudo apt install libgtk-3-dev libxdo-dev libssl-dev pkg-config
-```
 
-Fedora/RHEL:
-
-```sh
+# Fedora / RHEL
 sudo dnf install gtk3-devel libxdo-devel openssl-devel
+
 ```
 
-### Windows
+Build binary:
 
 ```sh
-git clone https://github.com/livrasand/Browseraptor.git
+git clone [https://github.com/livrasand/Browseraptor.git](https://github.com/livrasand/Browseraptor.git)
 cd Browseraptor
 cargo build --release
-# Binary will be at: target\release\browseraptor.exe
+# Output: target/release/browseraptor
+
 ```
 
-> **Note:** [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development with C++** workload is required.
-
-## Stopping the daemon
-
-Browseraptor runs as a background daemon. To stop it from the terminal:
-
-### macOS / Linux
-
-```sh
-# Graceful stop
-pkill -x browseraptor
-
-# If it does not respond, force kill
-pkill -9 -x browseraptor
-```
-
-Or find the PID manually and kill it:
-
-```sh
-pgrep browseraptor        # shows the PID
-kill <PID>
-```
-
-### Windows (cmd)
+Requires [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with **Desktop development with C++**.
 
 ```cmd
-taskkill /IM browseraptor.exe /F
-```
+git clone [https://github.com/livrasand/Browseraptor.git](https://github.com/livrasand/Browseraptor.git)
+cd Browseraptor
+cargo build --release
+:: Output: target\release\browseraptor.exe
 
-Or using PowerShell:
-
-```powershell
-Stop-Process -Name browseraptor -Force
 ```
 
 ---
 
-# Contributors
+## Managing the Background Daemon
 
-For information on contributing to this project, please see [CONTRIBUTING.md](/CONTRIBUTING.md).
+Browseraptor runs as a lightweight background process. To stop or restart it:
+
+| OS | Graceful Stop | Force Stop |
+| --- | --- | --- |
+| **macOS / Linux** | `pkill -x browseraptor` | `pkill -9 -x browseraptor` |
+| **Windows (CMD)** | `taskkill /IM browseraptor.exe /F` | — |
+| **Windows (PowerShell)** | `Stop-Process -Name browseraptor -Force` | — |
 
 ---
 
-Star this repo if you believe developers deserve the right to contribute anonymously.
+## Contributing & Community
+
+Contributions, issues, and feature requests are welcome! Check out [CONTRIBUTING.md](https://www.google.com/search?q=/CONTRIBUTING.md) to get started.
+
+If you find Browseraptor useful, please **give it a ⭐ on GitHub** to help others discover it!
 
 [![Share](https://img.shields.io/badge/share-000000?logo=x&logoColor=white)](https://x.com/intent/tweet?text=Check%20out%20this%20project%20on%20GitHub:%20https://github.com/livrasand/Browseraptor)
 [![Share](https://img.shields.io/badge/share-1877F2?logo=facebook&logoColor=white)](https://www.facebook.com/sharer/sharer.php?u=https://github.com/livrasand/Browseraptor)
