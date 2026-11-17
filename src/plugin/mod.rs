@@ -109,6 +109,13 @@ impl Plugin {
         String::from_utf8(data).map_err(|e| anyhow::anyhow!("invalid utf-8 from set_config: {e}"))
     }
 
+    pub fn get_ui_strings(&self) -> anyhow::Result<std::collections::HashMap<String, String>> {
+        let data = self.call_function("get_ui_strings", None)?;
+        let map: std::collections::HashMap<String, String> = serde_json::from_slice(&data)
+            .map_err(|e| anyhow::anyhow!("invalid ui strings: {e}"))?;
+        Ok(map)
+    }
+
     pub fn evaluate(&self, url: &str) -> anyhow::Result<PluginResult> {
         let data = self.call_function("evaluate", Some(url.as_bytes()))?;
         let result: PluginResult = serde_json::from_slice(&data)
@@ -188,7 +195,7 @@ pub fn load_installed_plugin(installed: &InstalledPlugin) -> anyhow::Result<Plug
     let wasm_path = installed
         .local_wasm_path
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("plugin {} no tiene ruta local", installed.id))?;
+        .ok_or_else(|| anyhow::anyhow!("plugin {} has no local path", installed.id))?;
 
     let wasm_bytes = std::fs::read(wasm_path)
         .map_err(|e| anyhow::anyhow!("cannot read wasm at {wasm_path}: {e}"))?;
@@ -202,4 +209,19 @@ pub fn load_installed_plugin(installed: &InstalledPlugin) -> anyhow::Result<Plug
     };
 
     load_plugin(manifest, &wasm_bytes)
+}
+
+pub fn load_ui_translations(
+    installed: &[InstalledPlugin],
+) -> std::collections::HashMap<String, String> {
+    for p in installed {
+        if let Ok(plugin) = load_installed_plugin(p) {
+            if plugin.has_function("get_ui_strings") {
+                if let Ok(map) = plugin.get_ui_strings() {
+                    return map;
+                }
+            }
+        }
+    }
+    std::collections::HashMap::new()
 }

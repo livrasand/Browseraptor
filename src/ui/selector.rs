@@ -312,6 +312,7 @@ pub struct DaemonSelector {
     config_focus_field: u8,
     config_browser_dropdown_idx: usize,
     config_save_error: Option<String>,
+    ui_strings: std::collections::HashMap<String, String>,
 }
 
 #[allow(dead_code)]
@@ -330,6 +331,7 @@ impl DaemonSelector {
             .iter()
             .map(|b| (gpui::SharedString::from(b.name().to_owned()), b.clone()))
             .collect();
+        let ui_strings = crate::plugin::load_ui_translations(&config.installed_plugins);
         Self {
             url: url.into(),
             items,
@@ -354,6 +356,7 @@ impl DaemonSelector {
             config_focus_field: 0,
             config_browser_dropdown_idx: 0,
             config_save_error: None,
+            ui_strings,
         }
     }
 
@@ -370,6 +373,10 @@ impl DaemonSelector {
         }
     }
 
+    fn tr(&self, key: &str, default: &str) -> String {
+        self.ui_strings.get(key).cloned().unwrap_or_else(|| default.to_string())
+    }
+
     fn render_plugin_panel(
         &mut self,
         text: gpui::Rgba,
@@ -383,6 +390,16 @@ impl DaemonSelector {
         let badge_bg = rgb(0x3a_3a_3a);
         let green = rgb(0x34_c7_59);
         let red = rgb(0xff_45_45);
+        let t_invalid_json = self.tr("plugins.invalid_json", "Error: Invalid plugin JSON:");
+        let t_read_config_error = self.tr("plugins.read_config_error", "Error reading config:");
+        let t_load_error = self.tr("plugins.load_error", "Error loading plugin:");
+        let t_uninstall = self.tr("plugins.uninstall", "Uninstall");
+        let t_configure = self.tr("plugins.configure", "Configure");
+        let t_open_folder = self.tr("plugins.open_folder", "Open folder");
+        let t_path = self.tr("plugins.path", "Path");
+        let t_plugins_title = self.tr("plugins.title", "PLUGINS");
+        let t_plugins_empty = self.tr("plugins.empty", "No plugins installed yet.");
+        let t_plugins_error = self.tr("plugins.error", "Error:");
 
         let installed_rows: Vec<_> = self
             .installed_plugins
@@ -395,6 +412,13 @@ impl DaemonSelector {
                 let is_dev = p.local_wasm_path.is_some();
                 let is_expanded = self.expanded_plugin == Some(i);
                 let row_bg_expanded = if is_expanded { rgb(0x2e_2e_2e) } else { row_bg };
+                let t_path = t_path.clone();
+                let t_open_folder = t_open_folder.clone();
+                let t_configure = t_configure.clone();
+                let t_uninstall = t_uninstall.clone();
+                let t_invalid_json = t_invalid_json.clone();
+                let t_read_config_error = t_read_config_error.clone();
+                let t_load_error = t_load_error.clone();
 
                 let mut col = div()
                     .id(("plugin-installed-row", i))
@@ -495,7 +519,7 @@ impl DaemonSelector {
                             div()
                                 .text_xs()
                                 .text_color(rgb(0x66_66_66))
-                                .child(format!("Ruta: {}", path)),
+                                .child(format!("{}: {}", t_path, path)),
                         );
                     }
 
@@ -513,7 +537,7 @@ impl DaemonSelector {
                                 .text_xs()
                                 .text_color(text_dim)
                                 .cursor_pointer()
-                                .child("Abrir carpeta")
+                                .child(t_open_folder.clone())
                                 .on_click(cx.listener(move |_this, _ev, _window, _cx| {
                                     if let Some(parent) =
                                         std::path::Path::new(&path_str).parent()
@@ -540,7 +564,7 @@ impl DaemonSelector {
                                 .text_xs()
                                 .text_color(text_dim)
                                 .cursor_pointer()
-                                .child("Configurar")
+                                .child(t_configure.clone())
                                 .on_click(cx.listener(move |this, _ev, _window, cx| {
                                     if i >= this.installed_plugins.len() {
                                         return;
@@ -600,7 +624,8 @@ impl DaemonSelector {
                                                 } else {
                                                     this.config_plugin_idx = i;
                                                     this.config_save_error = Some(format!(
-                                                        "Error: JSON invalido del plugin: {}",
+                                                        "{} {}",
+                                                        t_invalid_json.clone(),
                                                         &json_str[..json_str.len().min(200)]
                                                     ));
                                                     this.showing_config = true;
@@ -610,7 +635,8 @@ impl DaemonSelector {
                                             Err(e) => {
                                                 this.config_plugin_idx = i;
                                                 this.config_save_error = Some(format!(
-                                                    "Error al leer config: {} (wasm: {})",
+                                                    "{} {} (wasm: {})",
+                                                    t_read_config_error.clone(),
                                                     e, wasm_path
                                                 ));
                                                 this.showing_config = true;
@@ -620,7 +646,8 @@ impl DaemonSelector {
                                         Err(e) => {
                                             this.config_plugin_idx = i;
                                             this.config_save_error = Some(format!(
-                                                "Error al cargar plugin: {} (wasm: {})",
+                                                "{} {} (wasm: {})",
+                                                t_load_error.clone(),
                                                 e, wasm_path
                                             ));
                                             this.showing_config = true;
@@ -641,7 +668,7 @@ impl DaemonSelector {
                             .text_xs()
                             .text_color(red)
                             .cursor_pointer()
-                            .child("Desinstalar")
+                            .child(t_uninstall.clone())
                             .on_click(cx.listener(move |this, _ev, _window, cx| {
                                 if i < this.installed_plugins.len() {
                                     this.installed_plugins.remove(i);
@@ -651,6 +678,7 @@ impl DaemonSelector {
                                         config.installed_plugins = this.installed_plugins.clone();
                                         let _ = config.save();
                                     }
+                                    this.ui_strings = crate::plugin::load_ui_translations(&this.installed_plugins);
                                     cx.notify();
                                 }
                             })),
@@ -685,7 +713,7 @@ impl DaemonSelector {
                             .font_weight(FontWeight::BOLD)
                             .text_color(text_dim)
                             .flex_grow()
-                            .child("PLUGINS"),
+                            .child(t_plugins_title.clone()),
                     )
                     .child(
                         div()
@@ -713,10 +741,11 @@ impl DaemonSelector {
                                             config.installed_plugins.push(plugin);
                                             let _ = config.save();
                                         }
+                                        this.ui_strings = crate::plugin::load_ui_translations(&this.installed_plugins);
                                         this.dev_plugin_loading = false;
                                         cx.notify();
                                     }
-                                    Err(e) if e == "cancelado" => {
+                                    Err(e) if e == "cancelled" => {
                                         this.dev_plugin_loading = false;
                                         cx.notify();
                                     }
@@ -734,7 +763,7 @@ impl DaemonSelector {
                     div()
                         .text_xs()
                         .text_color(text_dim)
-                        .child("Aún no hay plugins instalados.")
+                        .child(t_plugins_empty.clone())
                         .into_any_element()
                 } else {
                     div()
@@ -755,7 +784,7 @@ impl DaemonSelector {
                     .rounded(px(6.0))
                     .text_xs()
                     .text_color(red)
-                    .child(format!("Error: {}", err)),
+                    .child(format!("{} {}", t_plugins_error, err)),
             );
         }
 
@@ -823,17 +852,17 @@ impl DaemonSelector {
                             self.config_save_error = Some(err.to_string());
                         }
                     } else {
-                        self.config_save_error = Some(format!("Respuesta invalida: {}", resp));
+                        self.config_save_error = Some(format!("{} {}", self.tr("plugins.invalid_response", "Invalid response:"), resp));
                     }
                     cx.notify();
                 }
                 Err(e) => {
-                    self.config_save_error = Some(format!("Error al guardar: {}", e));
+                    self.config_save_error = Some(format!("{} {}", self.tr("plugins.save_error", "Error saving:"), e));
                     cx.notify();
                 }
             },
             Err(e) => {
-                self.config_save_error = Some(format!("Error al cargar plugin: {}", e));
+                self.config_save_error = Some(format!("{} {}", self.tr("plugins.load_error", "Error loading plugin:"), e));
                 cx.notify();
             }
         }
@@ -899,7 +928,7 @@ impl DaemonSelector {
                             .font_weight(FontWeight::BOLD)
                             .text_color(text)
                             .flex_grow()
-                            .child(format!("Configurar: {}", plugin_name)),
+                            .child(format!("{}: {}", self.tr("plugins.configure_title", "Configure"), plugin_name)),
                     )
                     .child(
                         div()
@@ -924,7 +953,7 @@ impl DaemonSelector {
 
         // Default browser - select dropdown
         let default_browser_display = if self.config_default_browser.is_empty() {
-            "Select browser…".to_string()
+            self.tr("plugins.select_browser", "Select browser…")
         } else {
             format!("{} ", self.config_default_browser)
         };
@@ -936,7 +965,7 @@ impl DaemonSelector {
                 div()
                     .text_xs()
                     .text_color(text_dim)
-                    .child("Default Browser"),
+                    .child(self.tr("plugins.default_browser", "Default Browser")),
             )
             .child(
                 div()
@@ -1006,13 +1035,13 @@ impl DaemonSelector {
                     div()
                         .text_xs()
                         .text_color(text_dim)
-                        .child("Default Profile"),
+                        .child(self.tr("plugins.default_profile", "Default Profile")),
                 )
                 .child({
                     let display = field_display(
                         &self.config_default_profile,
                         self.config_focus_kind == 2,
-                        "default…",
+                        &self.tr("plugins.default", "default…"),
                     );
                     div()
                         .id("cfg-default-profile")
@@ -1044,7 +1073,7 @@ impl DaemonSelector {
                 .text_xs()
                 .font_weight(FontWeight::BOLD)
                 .text_color(text_dim)
-                .child("Rules"),
+                .child(self.tr("plugins.rules", "Rules")),
         );
 
         // Cada regla
@@ -1064,7 +1093,7 @@ impl DaemonSelector {
 
             // Domain
             row = row.child({
-                let d = field_display(&val_domain, f_domain, "domain");
+                let d = field_display(&val_domain, f_domain, &self.tr("plugins.domain", "domain"));
                 div()
                     .id(("cfg-rule-{}-domain", ri))
                     .px(px(8.0))
@@ -1090,7 +1119,7 @@ impl DaemonSelector {
 
             // Browser - select dropdown
             let browser_display = if val_browser.is_empty() {
-                "Select…".to_string()
+                self.tr("plugins.select", "Select…")
             } else {
                 val_browser.clone()
             };
@@ -1159,7 +1188,7 @@ impl DaemonSelector {
 
             // Profile
             row = row.child({
-                let d = field_display(&val_profile, f_profile, "profile");
+                let d = field_display(&val_profile, f_profile, &self.tr("plugins.profile", "profile"));
                 div()
                     .id(("cfg-rule-{}-profile", ri))
                     .px(px(8.0))
@@ -1226,7 +1255,7 @@ impl DaemonSelector {
                 .text_xs()
                 .text_color(green)
                 .cursor_pointer()
-                .child("+ Add Rule")
+                .child(self.tr("plugins.add_rule", "+ Add Rule"))
                 .on_click(cx.listener(|this, _ev, _window, cx| {
                     this.config_rules.push(ConfigRuleForm {
                         domain_pattern: String::new(),
@@ -1271,7 +1300,7 @@ impl DaemonSelector {
                             .text_xs()
                             .text_color(red)
                             .cursor_pointer()
-                            .child("copy")
+                            .child(self.tr("plugins.copy", "copy"))
                             .on_click(cx.listener(move |_this, _ev, _window, _cx| {
                                 #[cfg(target_os = "macos")]
                                 {
@@ -1308,7 +1337,7 @@ impl DaemonSelector {
                         .text_xs()
                         .text_color(rgb(0xff_ff_ff))
                         .cursor_pointer()
-                        .child("Save")
+                        .child(self.tr("plugins.save", "Save"))
                         .on_click(cx.listener(|this, _ev, _window, cx| {
                             this.save_config(cx);
                         })),
@@ -1323,7 +1352,7 @@ impl DaemonSelector {
                         .text_xs()
                         .text_color(text_dim)
                         .cursor_pointer()
-                        .child("Cancel")
+                        .child(self.tr("plugins.cancel", "Cancel"))
                         .on_click(cx.listener(|this, _ev, _window, cx| {
                             this.showing_config = false;
                             this.config_save_error = None;
@@ -2206,8 +2235,6 @@ fn pick_browser_app() -> Option<String> {
     }
 }
 
-/// Muestra un dialogo nativo para seleccionar un archivo `.wasm`.
-/// Retorna la ruta completa o `None` si se cancela.
 fn pick_wasm_file() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
@@ -2238,19 +2265,14 @@ fn pick_wasm_file() -> Option<String> {
     }
 }
 
-/// Instala un plugin de desarrollo:
-/// 1. Abre un dialogo para seleccionar el `.wasm`
-/// 2. Lee el `manifest.json` del mismo directorio
-/// 3. Valida el modulo WASM
-/// 4. Retorna el `InstalledPlugin` listo para registrar
 fn install_dev_plugin() -> Result<crate::plugin::InstalledPlugin, String> {
     let wasm_path = match pick_wasm_file() {
         Some(p) => p,
-        None => return Err("cancelado".to_string()),
+        None => return Err("cancelled".to_string()),
     };
 
     crate::plugin::load_dev_plugin_from_path(&wasm_path)
-        .map_err(|e| format!("Error al cargar plugin: {}", e))
+        .map_err(|e| format!("Error loading plugin: {}", e))
 }
 
 /// Extract the display name from a .app bundle's Info.plist.
