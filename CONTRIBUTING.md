@@ -20,9 +20,8 @@ The following is a set of guidelines for contributing to Browseraptor. These are
   - [Plugin API](#plugin-api)
   - [Plugin Manifest](#plugin-manifest)
   - [Development Setup](#development-setup-1)
-  - [Testing Locally](#testing-locally)
-  - [Publishing](#publishing)
-  - [Submitting to the Channel](#submitting-to-the-channel)
+  - [Installing a Local Plugin](#installing-a-local-plugin)
+  - [Translation Plugins](#translation-plugins)
 - [Coding Guidelines](#coding-guidelines)
   - [Rust Style](#rust-style)
   - [Commit Conventions](#commit-conventions)
@@ -69,13 +68,13 @@ Feature requests are welcome. When suggesting a feature:
 
 ### Prerequisites
 
-- Rust **nightly** toolchain (enforced by `rust-toolchain.toml`)
+- Rust **stable** toolchain (configured by `rust-toolchain.toml`)
 
 ```sh
-rustup toolchain install nightly
+rustup toolchain install stable
 ```
 
-- **macOS:** Xcode Command Line Tools (`xcode-select --install`)
+- **macOS:** Xcode (with Metal Toolchain) for local builds that compile `gpui`
 - **Linux:** System libraries (see [README](./README.md#linux))
 - **Windows:** Visual Studio Build Tools with the "Desktop development with C++" workload
 
@@ -96,10 +95,10 @@ To build the macOS `.app` bundle:
 
 ### Running
 
-Start the daemon:
+Run the app:
 
 ```sh
-cargo run -- daemon
+cargo run
 ```
 
 Open a URL with the selector:
@@ -108,10 +107,10 @@ Open a URL with the selector:
 cargo run -- open https://example.com
 ```
 
-Re-scan installed browsers:
+List installed browsers:
 
 ```sh
-cargo run -- detect
+cargo run -- list
 ```
 
 ## Project Structure
@@ -121,7 +120,7 @@ src/
   main.rs               — Entry point, CLI argument parsing, daemon loop
   app.rs                — AppCommand enum, shared types
   tray.rs               — System tray / menu bar
-  hotkey.rs             — Global hotkey registration (macOS)
+  hotkey.rs             — Global hotkey registration
   single_instance.rs    — Single-instance enforcement via IPC
   default_browser.rs    — Default browser detection
 
@@ -131,31 +130,33 @@ src/
     launcher.rs         — Launch URLs in a specific browser
 
   config/
-    mod.rs              — Config loading, saving, hotkeys, repositories
+    mod.rs              — Config loading, saving, hotkeys, installed plugins
     rules.rs            — URL routing rules
 
   plugin/
-    mod.rs              — Plugin system: channel fetching, installing, WASM
+    mod.rs              — Plugin system: local/dev loading, WASM host
 
   ui/
     mod.rs              — Module exports
-    selector.rs         — Browser selector window (standalone & daemon modes)
-    default_prompt.rs   — "Always use this browser?" prompt
+    selector.rs         — Browser selector window and plugin UI
+    default_prompt.rs   — "Set default browser" prompt
 
 assets/
   icons/                — SVG icons for the UI
-assets/
+  os/                   — OS icons used in release notes
   browseraptor-logo.png
   screenshot.png
 ```
 
 ## Creating a Plugin
 
-Browseraptor plugins are WebAssembly (WASM) modules that can intercept and route URLs, cancel navigation, or specify a browser profile. Plugins run in a sandboxed WASM runtime and communicate with the host via exported functions and shared memory.
+Browseraptor plugins are WebAssembly (WASM) modules. Plugins run in a sandboxed WASM runtime and communicate with the host via exported functions and shared memory.
+
+Plugins are installed locally (for example, development plugins). Each installed plugin must have a `.wasm` file and a `manifest.json` in the same directory.
 
 ### Plugin API
 
-Every plugin must export the following functions from its WASM module:
+Every plugin must export a `memory` section and the following functions:
 
 ```rust
 // Allocate `size` bytes in WASM linear memory, return a pointer.
@@ -172,19 +173,17 @@ pub extern "C" fn dealloc(ptr: i32, size: i32);
 pub extern "C" fn evaluate(ptr: i32, len: i32) -> i32;
 ```
 
-The module must also export a `memory` section (standard WASM linear memory).
-
 The `evaluate` function must return a JSON-serialized `PluginResult`:
 
 ```rust
 pub struct PluginResult {
-    pub browser: Option<String>,  // Browser name (e.g., "firefox", "chrome")
-    pub profile: Option<String>,  // Browser profile (e.g., "work", "personal")
-    pub cancel: bool,             // If true, cancel navigation entirely
+    pub browser: Option<String>,  // Browser name
+    pub profile: Option<String>,  // Browser profile
+    pub cancel: bool,             // If true, cancel navigation
 }
 ```
 
-If `cancel` is `true`, navigation is blocked. If `browser` is `Some`, the URL is opened in that browser (optionally with a specific `profile`). If both are `None`, the plugin passes — the next plugin or the default router handles the URL.
+If `cancel` is `true`, navigation is blocked. If `browser` is `Some`, the URL is opened in that browser (optionally with a specific `profile`). If both `browser` and `cancel` are not used, the plugin passes and the next plugin or router handles the URL.
 
 #### Optional Exports
 
@@ -193,14 +192,20 @@ If `cancel` is `true`, navigation is blocked. If `browser` is `Some`, the URL is
 #[no_mangle]
 pub extern "C" fn get_config() -> i32;
 
-// Receive new configuration (JSON string via pointer/length).
+// Receive new configuration (JSON string via pointer/length) and return a JSON response.
 #[no_mangle]
 pub extern "C" fn set_config(ptr: i32, len: i32) -> i32;
+
+// Return UI translations as a JSON object: { "key": "translated text" }.
+#[no_mangle]
+pub extern "C" fn get_ui_strings() -> i32;
 ```
+
+`get_config` and `set_config` are used by the plugin configuration UI for local plugins. `get_ui_strings` is used for translation plugins.
 
 ### Plugin Manifest
 
-Every plugin must include a `manifest.json` alongside its WASM file:
+Every plugin must include a `manifest.json` in the same directory as its `.wasm` file:
 
 ```json
 {
@@ -208,9 +213,11 @@ Every plugin must include a `manifest.json` alongside its WASM file:
   "name": "My Plugin",
   "version": "1.0.0",
   "author": "Your Name",
-  "description": "Routes work-related URLs to Firefox with the work profile"
+  "description": "Routes work-related URLs to a specific browser"
 }
 ```
+
+Browseraptor reads `id`, `name`, `version`, `author`, and `description` from the manifest.
 
 ### Development Setup
 
@@ -219,11 +226,7 @@ We recommend writing plugins in Rust and compiling to `wasm32-unknown-unknown`.
 **Prerequisites:**
 
 ```sh
-# Install the wasm32 target
 rustup target add wasm32-unknown-unknown
-
-# Install wasm-pack (optional, but recommended for building)
-cargo install wasm-pack
 ```
 
 **Scaffold a new plugin:**
@@ -256,164 +259,57 @@ cargo build --release --target wasm32-unknown-unknown
 # Output: target/wasm32-unknown-unknown/release/my_plugin.wasm
 ```
 
-Or with `wasm-pack`:
+### Installing a Local Plugin
 
-```sh
-wasm-pack build --target web --out-name plugin.wasm
-# Output: pkg/plugin.wasm
-```
+1. Build your plugin `.wasm` file and create a `manifest.json` in the same directory.
+2. Run Browseraptor and open the plugins panel.
+3. Click **+ Dev** and select the plugin `.wasm` file.
+4. Browseraptor validates the module and saves the plugin in the local configuration.
+5. If the plugin exports `get_config` and `set_config`, you can configure it from the UI.
+6. You can uninstall the plugin from the same panel.
 
-### Testing Locally
+### Translation Plugins
 
-After building your plugin, you can load it into Browseraptor locally for testing:
+A translation plugin changes UI text by exporting `get_ui_strings`.
 
-1. Create a `manifest.json` in the same directory as your `.wasm` file.
-2. Copy the WASM file and manifest to a location Browseraptor can find.
-3. Run Browseraptor and verify the plugin is loaded via the UI or logs.
+`get_ui_strings` must return a JSON object that maps translation keys to strings:
 
-Example minimal test:
-
-```sh
-# Build
-cargo build --release --target wasm32-unknown-unknown
-
-# Create manifest
-cat > manifest.json <<EOF
+```json
 {
-  "id": "my-plugin",
-  "name": "My Plugin",
-  "version": "1.0.0",
-  "author": "You",
-  "description": "Test plugin"
+  "plugins.title": "PLUGINS",
+  "plugins.configure": "Configure",
+  "plugins.save": "Save",
+  "plugins.cancel": "Cancel"
 }
-EOF
-
-# Copy WASM to a test location
-cp target/wasm32-unknown-unknown/release/my_plugin.wasm ./plugin.wasm
 ```
 
-### Publishing
+Notes:
 
-To publish a plugin for other users, use the [Browseraptor Publish Action](https://github.com/browseraptor/browseraptor_publish):
+- The function must follow the same result format as other plugin functions: return a pointer to `[4-byte LE length][JSON data]`.
+- Browseraptor loads UI translations on startup and after installing or uninstalling a plugin.
+- If a key is missing, Browseraptor uses the default English text.
+- The first installed local plugin that provides valid `get_ui_strings` data is used for UI translations.
 
-1. Generate an Ed25519 key pair:
+Common keys:
 
-   ```sh
-   git clone https://github.com/browseraptor/browseraptor_publish.git
-   cd browseraptor_publish/tools/bap-sig
-   cargo build --release
-   ./target/release/bap-sig generate
-   ```
-
-2. Add the keys to your repository's [GitHub Secrets](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions):
-
-   - `BAP_PRIVATE_KEY` — your Ed25519 private key (hex-encoded)
-   - `BAP_PUBLIC_KEY` — your Ed25519 public key (hex-encoded)
-
-3. Create `.github/workflows/publish.yml`:
-
-   ```yaml
-   name: Publish Plugin
-   on:
-     push:
-       tags:
-         - 'v*.*.*'
-
-   jobs:
-     publish:
-       runs-on: ubuntu-latest
-       steps:
-         - uses: actions/checkout@v4
-
-         - name: Setup Rust
-           uses: dtolnay/rust-toolchain@stable
-
-         - name: Publish plugin
-           uses: browseraptor/browseraptor_publish@v1
-           with:
-             plugin-name: my-plugin
-             source-dir: .
-             build-command: wasm-pack build --target web --out-name plugin.wasm
-             private-key: ${{ secrets.BAP_PRIVATE_KEY }}
-             public-key: ${{ secrets.BAP_PUBLIC_KEY }}
-             channel-repo: browseraptor/browseraptor_channel
-             github-token: ${{ secrets.GITHUB_TOKEN }}
-   ```
-
-4. Tag and push:
-
-   ```sh
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-
-The action will build your WASM, create a signed `.tar.gz` bundle, create a GitHub Release, and open a PR to the [channel registry](https://github.com/browseraptor/browseraptor_channel).
-
-### Submitting to the Channel
-
-Once your plugin is published, submit it to the [default channel](https://github.com/browseraptor/browseraptor_channel) so users can discover and install it:
-
-1. **Fork** the [browseraptor/browseraptor_channel](https://github.com/browseraptor/browseraptor_channel) repository.
-2. **Add an index entry** to `repository/index.json` in alphabetical order by plugin ID.
-3. **Create a metadata file** at `repository/{first-letter}/{plugin-id}.json` (e.g., `repository/m/my-plugin.json`).
-
-   ```json
-   {
-     "id": "my-plugin",
-     "name": "My Plugin",
-     "description": "Routes work URLs to Firefox with work profile",
-     "author": {
-       "name": "Your Name",
-       "url": "https://github.com/yourusername"
-     },
-     "version": "1.0.0",
-     "license": "MPL-2.0",
-     "categories": ["url-routing", "productivity"],
-     "tags": ["work", "routing", "productivity"],
-     "min_browseraptor_version": "0.2.0",
-     "permissions": ["navigation"],
-     "wasm": {
-       "url": "https://github.com/yourusername/my-plugin/releases/download/v1.0.0/plugin.wasm",
-       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-       "size_bytes": 24576,
-       "entry_point": "evaluate",
-       "api_version": "1.0.0"
-     },
-     "repository": {
-       "url": "https://github.com/yourusername/my-plugin",
-       "type": "git"
-     },
-     "changelog": "https://github.com/yourusername/my-plugin/releases",
-     "docs": "https://github.com/yourusername/my-plugin#readme",
-     "updated_at": "2026-06-06T00:00:00Z",
-     "created_at": "2026-06-06T00:00:00Z"
-   }
-   ```
-
-4. **Submit a pull request** with your changes. Use the PR template and check all boxes.
-
-**Guidelines:**
-
-- Submit one plugin per PR.
-- The `wasm.url` must point to a release asset in your GitHub repository.
-- The `wasm.sha256` must be the SHA256 hash of the WASM file.
-- The `id` must match the filename (without `.json`) and be placed in the directory matching the first letter of the ID.
-- A valid semver tag (e.g., `v1.0.0`) must exist on your plugin repository.
-- Only submit plugins you maintain.
-
-For a full reference, see the [channel CONTRIBUTING.md](https://github.com/livrasand/browseraptor_channel/blob/master/CONTRIBUTING.md).
+- `plugins.title`, `plugins.empty`, `plugins.path`, `plugins.error`
+- `plugins.open_folder`, `plugins.configure`, `plugins.uninstall`
+- `plugins.configure_title`, `plugins.default_browser`, `plugins.default_profile`
+- `plugins.rules`, `plugins.domain`, `plugins.profile`, `plugins.select`, `plugins.select_browser`, `plugins.default`
+- `plugins.add_rule`, `plugins.copy`, `plugins.save`, `plugins.cancel`
+- `plugins.invalid_json`, `plugins.invalid_response`, `plugins.read_config_error`, `plugins.load_error`, `plugins.save_error`
 
 ## Coding Guidelines
 
 ### Rust Style
 
-- Format with `rustfmt` (the nightly toolchain's version).
+- Format with `rustfmt`.
 - Run `cargo clippy` before committing and address all warnings.
 - Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/).
 - Use `anyhow::Result` for fallible functions unless a specific error type is needed.
 - Prefer `gpui::SharedString` over `String` in UI-facing code.
 - Use `tracing` for logging (not `println!` or `eprintln!`).
-- Add doc comments (`///`) to all public items.
+- Add doc comments (`///`) to public items when useful.
 
 ### What to Avoid
 
@@ -436,10 +332,12 @@ Prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `style:`, `c
 
 ## Workflows
 
-This project uses GitHub Actions for CI. The workflow is defined in `.github/workflows/`:
+This project uses GitHub Actions for CI. The workflows are defined in `.github/workflows/`:
 
-- **`build-binaries.yml`** — reusable workflow that compiles for Linux, macOS, and Windows.
-- **`ci.yml`** — invoked on tag pushes (`v*`) or manually via `workflow_dispatch`.
+- **`build-binaries.yml`** — reusable workflow that builds binaries for Linux, macOS, and Windows and can publish a GitHub release.
+- **`ci.yml`** — runs on tag pushes (`v*`) or manually via `workflow_dispatch`.
+
+Manual runs can set `publish-release`, `tag`, and `prerelease`.
 
 When you open a pull request, ensure that:
 
