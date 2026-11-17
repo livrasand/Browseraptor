@@ -1,35 +1,7 @@
 #![allow(dead_code)]
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 use wasmtime::{Engine, Instance, Module, Store, TypedFunc};
-
-pub const CHANNEL_URL: &str =
-    "https://raw.githubusercontent.com/livrasand/browseraptor_channel/main/channel_v1.json";
-
-/// Entry for a plugin in the remote channel index.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChannelPluginEntry {
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub author: Option<String>,
-    pub version: String,
-    pub path: String,
-    #[serde(default)]
-    pub categories: Vec<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-}
-
-/// Top-level channel index (channel_v1.json).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChannelIndex {
-    pub version: u32,
-    pub plugins: HashMap<String, ChannelPluginEntry>,
-}
 
 /// A plugin that the user has installed locally.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,46 +11,9 @@ pub struct InstalledPlugin {
     pub version: String,
     #[serde(default)]
     pub description: Option<String>,
-    /// Ruta local al archivo `.wasm` (solo para plugins de desarrollo).
-    /// Si es `None`, el plugin proviene de un canal remoto.
+    /// Ruta local al archivo `.wasm`.
     #[serde(default)]
     pub local_wasm_path: Option<String>,
-}
-
-/// Fetch the channel index via HTTP. Returns None if the request fails (offline, etc.).
-pub fn fetch_channel() -> Option<ChannelIndex> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .user_agent("browseraptor/0.2")
-        .build()
-        .ok()?;
-    let resp = client.get(CHANNEL_URL).send().ok()?;
-    let bytes = resp.bytes().ok()?;
-    serde_json::from_slice(&bytes).ok()
-}
-
-use std::sync::{Mutex, OnceLock};
-
-// Cache for the last-fetched channel index (plugins list). Stored as
-// Vec<(id, entry)> for iteration in the UI.
-static CHANNEL_CACHE: OnceLock<Mutex<Option<Vec<(String, ChannelPluginEntry)>>>> = OnceLock::new();
-
-/// Return a cloned copy of the cached channel index, if present.
-pub fn get_channel_cache() -> Option<Vec<(String, ChannelPluginEntry)>> {
-    let m = CHANNEL_CACHE.get_or_init(|| Mutex::new(None));
-    m.lock().unwrap().clone()
-}
-
-/// Fetch the channel index in a background thread and populate the cache. When
-/// finished, send a simple AppCommand::ChannelFetched to notify the UI.
-pub fn fetch_channel_async(tx: std::sync::mpsc::Sender<crate::app::AppCommand>) {
-    std::thread::spawn(move || {
-        let fetched = fetch_channel().map(|idx| idx.plugins.into_iter().collect::<Vec<_>>());
-        let m = CHANNEL_CACHE.get_or_init(|| Mutex::new(None));
-        *m.lock().unwrap() = fetched.clone();
-        // Notify the UI (no payload) so the component can read the cached value.
-        let _ = tx.send(crate::app::AppCommand::ChannelFetched);
-    });
 }
 
 /// Result returned by a plugin after evaluating a URL.

@@ -297,29 +297,19 @@ pub struct DaemonSelector {
     hovered_icon: Option<usize>,
     hotkeys: std::collections::HashMap<String, String>,
     focus_handle: gpui::FocusHandle,
-    command_tx: std::sync::mpsc::Sender<crate::app::AppCommand>,
-    show_plugin_search: bool,
-    plugin_query: String,
-    channel_plugins: Option<Vec<(String, crate::plugin::ChannelPluginEntry)>>,
+    show_plugins: bool,
     installed_plugins: Vec<crate::plugin::InstalledPlugin>,
-    repositories: Vec<crate::config::Repository>,
-    show_repo_info: bool,
-    show_add_repo: bool,
-    add_repo_name: String,
-    add_repo_url: String,
-    repo_input_focus: u8,
     dev_plugin_error: Option<String>,
     dev_plugin_loading: bool,
     expanded_plugin: Option<usize>,
-    // UI de configuracion del plugin
     showing_config: bool,
     config_plugin_idx: usize,
     config_default_browser: String,
     config_default_profile: String,
     config_rules: Vec<ConfigRuleForm>,
-    config_focus_kind: u8, // 0=none, 1=default_browser, 2=default_profile, 3=rule_field
-    config_focus_rule: usize, // indice de regla cuando focus_kind==3
-    config_focus_field: u8, // 0=domain, 1=browser, 2=profile cuando focus_kind==3
+    config_focus_kind: u8,
+    config_focus_rule: usize,
+    config_focus_field: u8,
     config_browser_dropdown_idx: usize,
     config_save_error: Option<String>,
 }
@@ -330,7 +320,7 @@ impl DaemonSelector {
         url: String,
         _domain: String,
         _browsers: Vec<Browser>,
-        command_tx: std::sync::mpsc::Sender<crate::app::AppCommand>,
+        _command_tx: std::sync::mpsc::Sender<crate::app::AppCommand>,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let config = crate::config::Config::load().unwrap_or_default();
@@ -349,17 +339,8 @@ impl DaemonSelector {
             hovered_icon: None,
             hotkeys: config.hotkeys,
             focus_handle: cx.focus_handle(),
-            command_tx,
-            show_plugin_search: false,
-            plugin_query: String::new(),
-            channel_plugins: None,
+            show_plugins: false,
             installed_plugins: config.installed_plugins,
-            repositories: config.repositories,
-            show_repo_info: false,
-            show_add_repo: false,
-            add_repo_name: String::new(),
-            add_repo_url: String::new(),
-            repo_input_focus: 0,
             dev_plugin_error: None,
             dev_plugin_loading: false,
             expanded_plugin: None,
@@ -403,15 +384,6 @@ impl DaemonSelector {
         let green = rgb(0x34_c7_59);
         let red = rgb(0xff_45_45);
 
-        // If a background fetch populated the channel cache, pick it up now so
-        // the UI can render results without blocking.
-        if self.channel_plugins.is_none() {
-            if let Some(cached) = crate::plugin::get_channel_cache() {
-                self.channel_plugins = Some(cached);
-            }
-        }
-
-        // ── Installed plugins ──────────────────────────────────────────
         let installed_rows: Vec<_> = self
             .installed_plugins
             .iter()
@@ -422,19 +394,32 @@ impl DaemonSelector {
                 let desc = p.description.clone().unwrap_or_default();
                 let is_dev = p.local_wasm_path.is_some();
                 let is_expanded = self.expanded_plugin == Some(i);
+                let row_bg_expanded = if is_expanded { rgb(0x2e_2e_2e) } else { row_bg };
 
-                let row = div()
+                let mut col = div()
                     .id(("plugin-installed-row", i))
+                    .flex()
+                    .flex_col()
+                    .bg(row_bg_expanded)
+                    .rounded(px(6.0))
+                    .overflow_hidden();
+
+                let header = div()
+                    .id(("plugin-header", i))
                     .flex()
                     .items_center()
                     .gap_3()
-                    .flex_grow()
-                    .min_w(px(0.0))
                     .px(px(12.0))
                     .py(px(8.0))
-                    .bg(if is_expanded { rgb(0x22_2a_2a) } else { row_bg })
-                    .rounded(px(6.0))
                     .cursor_pointer()
+                    .on_click(cx.listener(move |this, _ev, _window, cx| {
+                        if this.expanded_plugin == Some(i) {
+                            this.expanded_plugin = None;
+                        } else {
+                            this.expanded_plugin = Some(i);
+                        }
+                        cx.notify();
+                    }))
                     .child(
                         div()
                             .size(px(28.0))
@@ -452,201 +437,111 @@ impl DaemonSelector {
                             .flex()
                             .flex_col()
                             .flex_grow()
-                            .min_w(px(0.0))
                             .child(
                                 div()
                                     .text_sm()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(text)
-                                    .child(name),
+                                    .child(name.clone()),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .text_color(text_dim)
-                                    .overflow_hidden()
-                                    .min_w(px(0.0))
-                                    .child(desc),
+                                    .child(format!("v{}{}", ver, if is_dev { " · dev" } else { "" })),
                             ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(text_dim)
-                            .child(format!("v{}", ver)),
                     )
                     .child(if is_dev {
                         div()
-                            .px(px(4.0))
-                            .py(px(1.0))
-                            .ml(px(4.0))
-                            .bg(rgb(0x2d_6b_3a))
-                            .rounded(px(3.0))
-                            .text_color(green)
+                            .px(px(6.0))
+                            .py(px(2.0))
+                            .bg(rgb(0x3a_3a_1a))
+                            .rounded(px(4.0))
+                            .text_color(rgb(0xd4_c8_3a))
                             .text_xs()
-                            .child("Dev")
+                            .child("DEV")
                             .into_any_element()
                     } else {
                         div().into_any_element()
                     })
                     .child(
                         div()
-                            .id(("expand-plugin", i))
-                            .size(px(18.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
                             .text_xs()
                             .text_color(text_dim)
-                            .child(if is_expanded { "▲" } else { "▼" }),
-                    )
-                    .on_click(cx.listener(move |this, _ev, _window, cx| {
-                        if this.expanded_plugin == Some(i) {
-                            this.expanded_plugin = None;
-                        } else {
-                            this.expanded_plugin = Some(i);
-                        }
-                        cx.notify();
-                    }));
+                            .child(if is_expanded { "▴" } else { "▾" }),
+                    );
 
-                // Contenedor principal
-                let mut col = div().flex().flex_col().gap_1();
-                col = col.child(row);
+                col = col.child(header);
 
-                // Panel expandido con detalles
                 if is_expanded {
                     let mut detail_col = div()
                         .flex()
                         .flex_col()
                         .gap_2()
                         .px(px(12.0))
-                        .py(px(10.0))
-                        .ml(px(40.0))
-                        .bg(rgb(0x22_22_22))
-                        .rounded(px(6.0))
-                        .min_w(px(0.0));
+                        .pb(px(10.0))
+                        .border_t_1()
+                        .border_color(rgb(0x3a_3a_3a))
+                        .pt(px(8.0));
 
-                    // ID
-                    detail_col = detail_col.child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(text_dim)
-                                    .flex_shrink()
-                                    .child("ID:"),
-                            )
-                            .child(
-                                div()
-                                    .flex_grow()
-                                    .min_w(px(0.0))
-                                    .text_xs()
-                                    .text_color(text)
-                                    .child(p.id.clone()),
-                            ),
-                    );
-
-                    // Descripcion completa
-                    if let Some(ref desc_full) = p.description {
+                    if !desc.is_empty() {
                         detail_col = detail_col.child(
-                            div()
-                                .flex()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(text_dim)
-                                        .flex_shrink()
-                                        .child("Desc:"),
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .flex_grow()
-                                        .min_w(px(0.0))
-                                        .overflow_hidden()
-                                        .text_xs()
-                                        .text_color(text)
-                                        .child(desc_full.clone()),
-                                ),
+                            div().text_xs().text_color(text_dim).child(desc.clone()),
                         );
                     }
 
-                    // Ruta local (solo dev)
                     if let Some(ref path) = p.local_wasm_path {
                         detail_col = detail_col.child(
                             div()
-                                .flex()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(text_dim)
-                                        .flex_shrink()
-                                        .child("WASM:"),
-                                )
-                                .child(
-                                    div()
-                                        .flex_grow()
-                                        .min_w(px(0.0))
-                                        .text_xs()
-                                        .text_color(text_dim)
-                                        .overflow_hidden()
-                                        .child(path.clone()),
-                                ),
+                                .text_xs()
+                                .text_color(rgb(0x66_66_66))
+                                .child(format!("Ruta: {}", path)),
                         );
                     }
 
-                    // Botones de accion
-                    let mut actions = div().flex().items_center().gap_2().mt(px(4.0));
+                    let mut actions = div().flex().gap_2().pt(px(4.0));
 
-                    // Abrir carpeta (solo dev)
                     if let Some(ref path) = p.local_wasm_path {
-                        let dir_path = std::path::Path::new(path)
-                            .parent()
-                            .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_default();
-                        let dir_path_clone = dir_path.clone();
+                        let path_str = path.clone();
                         actions = actions.child(
                             div()
-                                .id(("open-plugin-dir", i))
+                                .id(("open-folder-btn", i))
                                 .px(px(8.0))
                                 .py(px(4.0))
                                 .rounded(px(4.0))
-                                .bg(accent)
+                                .bg(badge_bg)
                                 .text_xs()
-                                .text_color(rgb(0xff_ff_ff))
+                                .text_color(text_dim)
                                 .cursor_pointer()
                                 .child("Abrir carpeta")
                                 .on_click(cx.listener(move |_this, _ev, _window, _cx| {
-                                    #[cfg(target_os = "macos")]
+                                    if let Some(parent) =
+                                        std::path::Path::new(&path_str).parent()
                                     {
-                                        let _ = std::process::Command::new("open")
-                                            .arg(&dir_path_clone)
-                                            .spawn();
+                                        #[cfg(target_os = "macos")]
+                                        {
+                                            let _ = std::process::Command::new("open")
+                                                .arg(parent)
+                                                .spawn();
+                                        }
                                     }
                                 })),
                         );
                     }
 
-                    // Configurar plugin
                     if p.local_wasm_path.is_some() {
                         actions = actions.child(
                             div()
-                                .id(("configure-plugin-btn", i))
+                                .id(("config-plugin-btn", i))
                                 .px(px(8.0))
                                 .py(px(4.0))
                                 .rounded(px(4.0))
-                                .bg(rgb(0x2a_4a_2a))
+                                .bg(badge_bg)
                                 .text_xs()
-                                .text_color(green)
+                                .text_color(text_dim)
                                 .cursor_pointer()
                                 .child("Configurar")
                                 .on_click(cx.listener(move |this, _ev, _window, cx| {
-                                    cx.stop_propagation();
                                     if i >= this.installed_plugins.len() {
                                         return;
                                     }
@@ -654,95 +549,74 @@ impl DaemonSelector {
                                     let wasm_path =
                                         installed.local_wasm_path.clone().unwrap_or_default();
                                     match crate::plugin::load_installed_plugin(&installed) {
-                                        Ok(plugin) => {
-                                            tracing::warn!(
-                                                "plugin loaded: {}, has get_config? {}",
-                                                plugin.manifest.id,
-                                                plugin.has_function("get_config")
-                                            );
-                                            match plugin.get_config() {
-                                                Ok(json_str) => {
-                                                    tracing::warn!(
-                                                        "get_config OK, len={}",
-                                                        json_str.len()
-                                                    );
-                                                    if let Ok(val) =
-                                                        serde_json::from_str::<serde_json::Value>(
-                                                            &json_str,
-                                                        )
-                                                    {
-                                                        let default_browser = val
-                                                            .get("default_browser")
-                                                            .and_then(|v| v.as_str())
-                                                            .unwrap_or("")
-                                                            .to_string();
-                                                        let default_profile = val
-                                                            .get("default_profile")
-                                                            .and_then(|v| v.as_str())
-                                                            .unwrap_or("")
-                                                            .to_string();
-                                                        let rules = val
-                                                            .get("rules")
-                                                            .and_then(|v| v.as_array())
-                                                            .map(|arr| {
-                                                                arr.iter()
-                                                                    .map(|r| ConfigRuleForm {
-                                                                        domain_pattern: r
-                                                                            .get("domain_pattern")
-                                                                            .and_then(|v| {
-                                                                                v.as_str()
-                                                                            })
-                                                                            .unwrap_or("")
-                                                                            .to_string(),
-                                                                        browser: r
-                                                                            .get("browser")
-                                                                            .and_then(|v| {
-                                                                                v.as_str()
-                                                                            })
-                                                                            .unwrap_or("")
-                                                                            .to_string(),
-                                                                        profile: r
-                                                                            .get("profile")
-                                                                            .and_then(|v| {
-                                                                                v.as_str()
-                                                                            })
-                                                                            .unwrap_or("")
-                                                                            .to_string(),
-                                                                    })
-                                                                    .collect()
-                                                            })
-                                                            .unwrap_or_default();
-                                                        this.config_plugin_idx = i;
-                                                        this.config_default_browser =
-                                                            default_browser;
-                                                        this.config_default_profile =
-                                                            default_profile;
-                                                        this.config_rules = rules;
-                                                        this.config_focus_kind = 0;
-                                                        this.config_save_error = None;
-                                                        this.showing_config = true;
-                                                        cx.notify();
-                                                    } else {
-                                                        this.config_plugin_idx = i;
-                                                        this.config_save_error = Some(format!(
-                                                            "Error: JSON invalido del plugin: {}",
-                                                            &json_str[..json_str.len().min(200)]
-                                                        ));
-                                                        this.showing_config = true;
-                                                        cx.notify();
-                                                    }
-                                                }
-                                                Err(e) => {
+                                        Ok(plugin) => match plugin.get_config() {
+                                            Ok(json_str) => {
+                                                if let Ok(cfg) =
+                                                    serde_json::from_str::<serde_json::Value>(&json_str)
+                                                {
+                                                    let default_browser = cfg
+                                                        .get("default_browser")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("")
+                                                        .to_string();
+                                                    let default_profile = cfg
+                                                        .get("default_profile")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("")
+                                                        .to_string();
+                                                    let rules = cfg
+                                                        .get("rules")
+                                                        .and_then(|v| v.as_array())
+                                                        .map(|arr| {
+                                                            arr.iter()
+                                                                .map(|r| ConfigRuleForm {
+                                                                    domain_pattern: r
+                                                                        .get("domain_pattern")
+                                                                        .and_then(|v| v.as_str())
+                                                                        .unwrap_or("")
+                                                                        .to_string(),
+                                                                    browser: r
+                                                                        .get("browser")
+                                                                        .and_then(|v| v.as_str())
+                                                                        .unwrap_or("")
+                                                                        .to_string(),
+                                                                    profile: r
+                                                                        .get("profile")
+                                                                        .and_then(|v| v.as_str())
+                                                                        .unwrap_or("")
+                                                                        .to_string(),
+                                                                })
+                                                                .collect()
+                                                        })
+                                                        .unwrap_or_default();
+                                                    this.config_plugin_idx = i;
+                                                    this.config_default_browser = default_browser;
+                                                    this.config_default_profile = default_profile;
+                                                    this.config_rules = rules;
+                                                    this.config_focus_kind = 0;
+                                                    this.config_save_error = None;
+                                                    this.showing_config = true;
+                                                    cx.notify();
+                                                } else {
                                                     this.config_plugin_idx = i;
                                                     this.config_save_error = Some(format!(
-                                                        "Error al leer config: {} (wasm: {})",
-                                                        e, wasm_path
+                                                        "Error: JSON invalido del plugin: {}",
+                                                        &json_str[..json_str.len().min(200)]
                                                     ));
                                                     this.showing_config = true;
                                                     cx.notify();
                                                 }
                                             }
-                                        }
+                                            Err(e) => {
+                                                this.config_plugin_idx = i;
+                                                this.config_save_error = Some(format!(
+                                                    "Error al leer config: {} (wasm: {})",
+                                                    e, wasm_path
+                                                ));
+                                                this.showing_config = true;
+                                                cx.notify();
+                                            }
+                                        },
                                         Err(e) => {
                                             this.config_plugin_idx = i;
                                             this.config_save_error = Some(format!(
@@ -757,7 +631,6 @@ impl DaemonSelector {
                         );
                     }
 
-                    // Desinstalar
                     actions = actions.child(
                         div()
                             .id(("uninstall-plugin-btn", i))
@@ -791,391 +664,6 @@ impl DaemonSelector {
             })
             .collect();
 
-        // ── Channel plugins (search results) ───────────────────────────
-        let query = self.plugin_query.to_lowercase();
-        let channel_rows: Vec<gpui::AnyElement> = match &self.channel_plugins {
-            None => vec![div()
-                .text_xs()
-                .text_color(text_dim)
-                .child("Presiona ↵ para buscar en el canal…")
-                .into_any_element()],
-            Some(entries) => {
-                let filtered: Vec<_> = entries
-                    .iter()
-                    .filter(|(id, e)| {
-                        query.is_empty()
-                            || id.to_lowercase().contains(&query)
-                            || e.name.to_lowercase().contains(&query)
-                            || e.description
-                                .as_deref()
-                                .unwrap_or("")
-                                .to_lowercase()
-                                .contains(&query)
-                    })
-                    .collect();
-
-                if filtered.is_empty() {
-                    vec![div()
-                        .text_xs()
-                        .text_color(text_dim)
-                        .child("No se encontraron plugins.")
-                        .into_any_element()]
-                } else {
-                    filtered
-                        .iter()
-                        .enumerate()
-                        .map(|(row_idx, (id, entry))| {
-                            let id = id.to_string();
-                            let name = entry.name.clone();
-                            let desc = entry.description.clone().unwrap_or_default();
-                            let ver = entry.version.clone();
-                            let already = self.installed_plugins.iter().any(|p| p.id == id);
-
-                            div()
-                                .id(("plugin-row", row_idx))
-                                .flex()
-                                .items_center()
-                                .gap_3()
-                                .px(px(12.0))
-                                .py(px(8.0))
-                                .bg(row_bg)
-                                .rounded(px(6.0))
-                                .child(
-                                    div()
-                                        .size(px(28.0))
-                                        .rounded(px(6.0))
-                                        .bg(badge_bg)
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .text_color(accent)
-                                        .text_xs()
-                                        .child("⬡"),
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .flex_grow()
-                                        .min_w(px(0.0))
-                                        .child(
-                                            div()
-                                                .text_sm()
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .text_color(text)
-                                                .child(name),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(text_dim)
-                                                .overflow_hidden()
-                                                .min_w(px(0.0))
-                                                .child(desc),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(text_dim)
-                                        .child(format!("v{}", ver)),
-                                )
-                                .child(if already {
-                                    div()
-                                        .px(px(6.0))
-                                        .py(px(2.0))
-                                        .bg(badge_bg)
-                                        .rounded(px(4.0))
-                                        .text_color(green)
-                                        .text_xs()
-                                        .child("✓")
-                                        .into_any_element()
-                                } else {
-                                    div()
-                                        .id(("install-btn", row_idx))
-                                        .px(px(6.0))
-                                        .py(px(2.0))
-                                        .bg(accent)
-                                        .rounded(px(4.0))
-                                        .text_color(rgb(0xff_ff_ff))
-                                        .text_xs()
-                                        .cursor_pointer()
-                                        .child("Instalar")
-                                        .on_click(cx.listener(move |this, _ev, _window, cx| {
-                                            let plugin = crate::plugin::InstalledPlugin {
-                                                id: id.clone(),
-                                                name: this
-                                                    .channel_plugins
-                                                    .as_ref()
-                                                    .and_then(|v| v.iter().find(|(i, _)| i == &id))
-                                                    .map(|(_, e)| e.name.clone())
-                                                    .unwrap_or_else(|| id.clone()),
-                                                version: this
-                                                    .channel_plugins
-                                                    .as_ref()
-                                                    .and_then(|v| v.iter().find(|(i, _)| i == &id))
-                                                    .map(|(_, e)| e.version.clone())
-                                                    .unwrap_or_default(),
-                                                description: this
-                                                    .channel_plugins
-                                                    .as_ref()
-                                                    .and_then(|v| v.iter().find(|(i, _)| i == &id))
-                                                    .and_then(|(_, e)| e.description.clone()),
-                                                local_wasm_path: None,
-                                            };
-                                            this.installed_plugins.push(plugin.clone());
-                                            if let Ok(mut config) = crate::config::Config::load() {
-                                                config.installed_plugins.push(plugin);
-                                                let _ = config.save();
-                                            }
-                                            cx.notify();
-                                        }))
-                                        .into_any_element()
-                                })
-                                .into_any_element()
-                        })
-                        .collect()
-                }
-            }
-        };
-
-        // ── Repository rows ────────────────────────────────────────────
-        let repo_rows: Vec<gpui::AnyElement> = self
-            .repositories
-            .iter()
-            .enumerate()
-            .map(|(ri, repo)| {
-                let name = repo.name.clone();
-                let url = repo.url.clone();
-                let url_display = url.replace("/", "/\u{200B}").replace(".", ".\u{200B}");
-                let enabled = repo.enabled;
-                div()
-                    .id(("repo-row", ri))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px(px(10.0))
-                    .py(px(6.0))
-                    .bg(row_bg)
-                    .rounded(px(6.0))
-                    // toggle enabled dot
-                    .child(
-                        div()
-                            .id(("repo-toggle", ri))
-                            .size(px(10.0))
-                            .rounded(px(5.0))
-                            .bg(if enabled { green } else { rgb(0x55_55_55) })
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _ev, _window, cx| {
-                                if let Some(r) = this.repositories.get_mut(ri) {
-                                    r.enabled = !r.enabled;
-                                }
-                                if let Ok(mut config) = crate::config::Config::load() {
-                                    config.repositories = this.repositories.clone();
-                                    let _ = config.save();
-                                }
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_grow()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(if enabled { text } else { text_dim })
-                                    .child(name),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(text_dim)
-                                    .flex_grow()
-                                    .min_w(px(0.0))
-                                    .child(url_display),
-                            ),
-                    )
-                    // remove button (only for non-official repos)
-                    .child(if ri > 0 {
-                        div()
-                            .id(("repo-remove", ri))
-                            .size(px(18.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_xs()
-                            .text_color(red)
-                            .cursor_pointer()
-                            .child("✕")
-                            .on_click(cx.listener(move |this, _ev, _window, cx| {
-                                if ri < this.repositories.len() {
-                                    this.repositories.remove(ri);
-                                    if let Ok(mut config) = crate::config::Config::load() {
-                                        config.repositories = this.repositories.clone();
-                                        let _ = config.save();
-                                    }
-                                    cx.notify();
-                                }
-                            }))
-                            .into_any_element()
-                    } else {
-                        div().into_any_element()
-                    })
-                    .into_any_element()
-            })
-            .collect();
-
-        // ── Add repo form ──────────────────────────────────────────────
-        let add_repo_form: gpui::AnyElement = if self.show_add_repo {
-            let name_val = if self.add_repo_name.is_empty() {
-                if self.repo_input_focus == 0 {
-                    "Nombre del repositorio|".to_string()
-                } else {
-                    "Nombre del repositorio…".to_string()
-                }
-            } else if self.repo_input_focus == 0 {
-                format!("{}|", self.add_repo_name)
-            } else {
-                self.add_repo_name.clone()
-            };
-            let url_val = if self.add_repo_url.is_empty() {
-                if self.repo_input_focus == 1 {
-                    "https://…|".to_string()
-                } else {
-                    "https://…".to_string()
-                }
-            } else if self.repo_input_focus == 1 {
-                format!("{}|", self.add_repo_url)
-            } else {
-                self.add_repo_url.clone()
-            };
-
-            div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .p(px(8.0))
-                .bg(rgb(0x22_22_22))
-                .rounded(px(6.0))
-                .child(
-                    div()
-                        .id("repo-name-input")
-                        .px(px(8.0))
-                        .py(px(4.0))
-                        .bg(if self.repo_input_focus == 0 {
-                            rgb(0x38_38_38)
-                        } else {
-                            row_bg
-                        })
-                        .rounded(px(4.0))
-                        .text_xs()
-                        .text_color(if self.add_repo_name.is_empty() {
-                            text_dim
-                        } else {
-                            text
-                        })
-                        .cursor_pointer()
-                        .child(name_val)
-                        .on_click(cx.listener(|this, _ev, _window, cx| {
-                            this.repo_input_focus = 0;
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    div()
-                        .id("repo-url-input")
-                        .px(px(8.0))
-                        .py(px(4.0))
-                        .bg(if self.repo_input_focus == 1 {
-                            rgb(0x38_38_38)
-                        } else {
-                            row_bg
-                        })
-                        .rounded(px(4.0))
-                        .text_xs()
-                        .text_color(if self.add_repo_url.is_empty() {
-                            text_dim
-                        } else {
-                            text
-                        })
-                        .cursor_pointer()
-                        .child(url_val)
-                        .on_click(cx.listener(|this, _ev, _window, cx| {
-                            this.repo_input_focus = 1;
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .child(
-                            div()
-                                .id("repo-add-confirm")
-                                .flex_grow()
-                                .px(px(8.0))
-                                .py(px(4.0))
-                                .bg(accent)
-                                .rounded(px(4.0))
-                                .text_xs()
-                                .text_color(rgb(0xff_ff_ff))
-                                .cursor_pointer()
-                                .child("Agregar")
-                                .on_click(cx.listener(|this, _ev, _window, cx| {
-                                    let name = this.add_repo_name.trim().to_string();
-                                    let url = this.add_repo_url.trim().to_string();
-                                    if !name.is_empty() && !url.is_empty() {
-                                        this.repositories.push(crate::config::Repository {
-                                            name,
-                                            url,
-                                            enabled: true,
-                                        });
-                                        if let Ok(mut config) = crate::config::Config::load() {
-                                            config.repositories = this.repositories.clone();
-                                            let _ = config.save();
-                                        }
-                                        this.add_repo_name.clear();
-                                        this.add_repo_url.clear();
-                                        this.show_add_repo = false;
-                                    }
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            div()
-                                .id("repo-add-cancel")
-                                .px(px(8.0))
-                                .py(px(4.0))
-                                .bg(badge_bg)
-                                .rounded(px(4.0))
-                                .text_xs()
-                                .text_color(text_dim)
-                                .cursor_pointer()
-                                .child("Cancelar")
-                                .on_click(cx.listener(|this, _ev, _window, cx| {
-                                    this.show_add_repo = false;
-                                    this.add_repo_name.clear();
-                                    this.add_repo_url.clear();
-                                    cx.notify();
-                                })),
-                        ),
-                )
-                .into_any_element()
-        } else {
-            div().into_any_element()
-        };
-
-        // ── Search bar display text ────────────────────────────────────
-        let search_display = if self.plugin_query.is_empty() {
-            "Buscar plugins…".to_string()
-        } else {
-            format!("{}|", self.plugin_query)
-        };
-
-        // ── Main scrollable panel ──────────────────────────────────────
         let mut panel = div()
             .id("plugin-scroll")
             .flex()
@@ -1186,30 +674,6 @@ impl DaemonSelector {
             .pt(px(12.0))
             .pb(px(8.0))
             .gap_3()
-            // Search bar
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px(px(10.0))
-                    .py(px(7.0))
-                    .bg(rgb(0x28_28_28))
-                    .rounded(px(8.0))
-                    .child(div().text_color(rgb(0x88_88_88)).text_xs().child("⌕"))
-                    .child(
-                        div()
-                            .flex_grow()
-                            .text_xs()
-                            .text_color(if self.plugin_query.is_empty() {
-                                rgb(0x55_55_55)
-                            } else {
-                                rgb(0xff_ff_ff)
-                            })
-                            .child(search_display),
-                    ),
-            )
-            // INSTALLED section
             .child(
                 div()
                     .flex()
@@ -1221,14 +685,13 @@ impl DaemonSelector {
                             .font_weight(FontWeight::BOLD)
                             .text_color(text_dim)
                             .flex_grow()
-                            .child("INSTALADOS"),
+                            .child("PLUGINS"),
                     )
-                    // Install Dev Plugin button
                     .child(
                         div()
                             .id("install-dev-btn")
-                            .px(px(6.0))
-                            .py(px(2.0))
+                            .px(px(8.0))
+                            .py(px(4.0))
                             .rounded(px(4.0))
                             .bg(rgb(0x2d_6b_3a))
                             .text_xs()
@@ -1281,9 +744,10 @@ impl DaemonSelector {
                         .children(installed_rows)
                         .into_any_element()
                 },
-            )
-            // Dev plugin error message
-            .child(if let Some(ref err) = self.dev_plugin_error {
+            );
+
+        if let Some(ref err) = self.dev_plugin_error {
+            panel = panel.child(
                 div()
                     .px(px(10.0))
                     .py(px(6.0))
@@ -1291,129 +755,7 @@ impl DaemonSelector {
                     .rounded(px(6.0))
                     .text_xs()
                     .text_color(red)
-                    .child(format!("Error: {}", err))
-                    .into_any_element()
-            } else {
-                div().into_any_element()
-            })
-            // CHANNEL section
-            .child(div().h(px(1.0)).bg(rgb(0x3a_3a_3a)).mt(px(4.0)))
-            .child(
-                div()
-                    .text_xs()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(text_dim)
-                    .child("CANAL"),
-            )
-            .child(div().flex().flex_col().gap_1().children(channel_rows))
-            // REPOSITORIES section
-            .child(div().h(px(1.0)).bg(rgb(0x3a_3a_3a)).mt(px(4.0)))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    // Section title
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(text_dim)
-                            .flex_grow()
-                            .child("REPOSITORIOS"),
-                    )
-                    // Info button
-                    .child(
-                        div()
-                            .id("repo-info-btn")
-                            .size(px(16.0))
-                            .rounded(px(8.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .bg(badge_bg)
-                            .text_xs()
-                            .text_color(text_dim)
-                            .cursor_pointer()
-                            .child("i")
-                            .on_click(cx.listener(|this, _ev, _window, cx| {
-                                this.show_repo_info = !this.show_repo_info;
-                                cx.notify();
-                            })),
-                    )
-                    // Add button
-                    .child(
-                        div()
-                            .id("repo-add-btn")
-                            .px(px(6.0))
-                            .py(px(2.0))
-                            .rounded(px(4.0))
-                            .bg(badge_bg)
-                            .text_xs()
-                            .text_color(text_dim)
-                            .cursor_pointer()
-                            .child("+ Añadir")
-                            .on_click(cx.listener(|this, _ev, _window, cx| {
-                                this.show_add_repo = !this.show_add_repo;
-                                this.repo_input_focus = 0;
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .child(add_repo_form)
-            .child(div().flex().flex_col().gap_1().children(repo_rows));
-
-        // ── Info modal overlay ─────────────────────────────────────────
-        if self.show_repo_info {
-            panel = panel.child(
-                div()
-                    .id("repo-info-modal")
-                    .absolute()
-                    .inset(px(16.0))
-                    .bg(rgb(0x2a_2a_2a))
-                    .rounded(px(10.0))
-                    .p(px(16.0))
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_color(text)
-                                    .flex_grow()
-                                    .child("Repositorios"),
-                            )
-                            .child(
-                                div()
-                                    .id("repo-info-close")
-                                    .size(px(20.0))
-                                    .rounded(px(10.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .bg(badge_bg)
-                                    .text_xs()
-                                    .text_color(text_dim)
-                                    .cursor_pointer()
-                                    .child("✕")
-                                    .on_click(cx.listener(|this, _ev, _window, cx| {
-                                        this.show_repo_info = false;
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(text_dim)
-                            .child("Un repositorio es una fuente de plugins. Esta lista muestra todos los repositorios añadidos actualmente. Los repositorios desactivados no se utilizan. Si un plugin está en más de un repositorio, se preferirá automáticamente el repositorio que esté más arriba de la lista. Puede reordenar los repositorios pulsando prolongadamente y arrastrándolos."),
-                    ),
+                    .child(format!("Error: {}", err)),
             );
         }
 
@@ -2514,113 +1856,10 @@ impl gpui::Render for DaemonSelector {
                     return;
                 }
 
-                // Plugin search mode
-                if this.show_plugin_search {
-                    // If add-repo form is open, route keys to the focused field
-                    if this.show_add_repo {
-                        match key.as_str() {
-                            "escape" => {
-                                this.show_add_repo = false;
-                                this.add_repo_name.clear();
-                                this.add_repo_url.clear();
-                                cx.notify();
-                            }
-                            "tab" => {
-                                this.repo_input_focus =
-                                    if this.repo_input_focus == 0 { 1 } else { 0 };
-                                cx.notify();
-                            }
-                            "backspace" => {
-                                if this.repo_input_focus == 0 {
-                                    this.add_repo_name.pop();
-                                } else {
-                                    this.add_repo_url.pop();
-                                }
-                                cx.notify();
-                            }
-                            "return" | "enter" => {
-                                if this.repo_input_focus == 0 && !this.add_repo_name.is_empty() {
-                                    this.repo_input_focus = 1;
-                                } else {
-                                    let name = this.add_repo_name.trim().to_string();
-                                    let url = this.add_repo_url.trim().to_string();
-                                    if !name.is_empty() && !url.is_empty() {
-                                        this.repositories.push(crate::config::Repository {
-                                            name,
-                                            url,
-                                            enabled: true,
-                                        });
-                                        if let Ok(mut config) = crate::config::Config::load() {
-                                            config.repositories = this.repositories.clone();
-                                            let _ = config.save();
-                                        }
-                                        this.add_repo_name.clear();
-                                        this.add_repo_url.clear();
-                                        this.show_add_repo = false;
-                                    }
-                                }
-                                cx.notify();
-                            }
-                            k if !ev.keystroke.modifiers.platform
-                                && !ev.keystroke.modifiers.control =>
-                            {
-                                // Reconstruct the actual character: use key directly (it's the char)
-                                let ch = if ev.keystroke.modifiers.shift {
-                                    k.to_uppercase()
-                                } else {
-                                    k.to_string()
-                                };
-                                if this.repo_input_focus == 0 {
-                                    this.add_repo_name.push_str(&ch);
-                                } else {
-                                    this.add_repo_url.push_str(&ch);
-                                }
-                                cx.notify();
-                            }
-                            _ => {}
-                        }
-                        return;
-                    }
-
-                    match key.as_str() {
-                        "escape" => {
-                            this.show_plugin_search = false;
-                            this.plugin_query.clear();
-                            cx.notify();
-                        }
-                        "backspace" => {
-                            this.plugin_query.pop();
-                            cx.notify();
-                        }
-                        "return" | "enter" => {
-                            // Fetch channel asynchronously to avoid blocking the UI thread.
-                            // The background worker will populate plugin::get_channel_cache()
-                            // and send AppCommand::ChannelFetched when done — the main loop
-                            // will call cx.notify(), and the component will pick up the
-                            // cached value on the next render.
-                            let _ = crate::plugin::fetch_channel_async(this.command_tx.clone());
-                            this.channel_plugins = None;
-                            cx.notify();
-                        }
-                        k if k.len() == 1
-                            && !ev.keystroke.modifiers.platform
-                            && !ev.keystroke.modifiers.control =>
-                        {
-                            let ch = if ev.keystroke.modifiers.shift {
-                                k.to_uppercase()
-                            } else {
-                                k.to_string()
-                            };
-                            this.plugin_query.push_str(&ch);
-                            cx.notify();
-                        }
-                        _ => {
-                            tracing::debug!(
-                                "Plugin search unhandled key: key={:?}, len={}",
-                                key,
-                                key.chars().count()
-                            );
-                        }
+                if this.show_plugins {
+                    if key == "escape" {
+                        this.show_plugins = false;
+                        cx.notify();
                     }
                     return;
                 }
@@ -2647,7 +1886,7 @@ impl gpui::Render for DaemonSelector {
             .child({
                 let content: gpui::AnyElement = if self.showing_config {
                     self.render_config_panel(text, text_dim, cx)
-                } else if self.show_plugin_search {
+                } else if self.show_plugins {
                     self.render_plugin_panel(text, text_dim, cx)
                 } else {
                     div()
@@ -2685,7 +1924,7 @@ impl gpui::Render for DaemonSelector {
                             .items_center()
                             .justify_center()
                             .cursor_pointer()
-                            .text_color(if self.show_plugin_search {
+                            .text_color(if self.show_plugins {
                                 rgb(0x4a_90_d9)
                             } else {
                                 text_dim
@@ -2695,21 +1934,14 @@ impl gpui::Render for DaemonSelector {
                                 svg()
                                     .path("assets/icons/lucide--blocks.svg")
                                     .size(px(16.0))
-                                    .text_color(if self.show_plugin_search {
+                                    .text_color(if self.show_plugins {
                                         rgb(0x4a_90_d9)
                                     } else {
                                         text_dim
                                     }),
                             )
                             .on_click(cx.listener(|this, _ev, _window, cx| {
-                                this.show_plugin_search = !this.show_plugin_search;
-                                if this.show_plugin_search {
-                                    this.plugin_query.clear();
-                                    this.channel_plugins = None;
-                                    // Fetch channel on open asynchronously (non-blocking).
-                                    let _ =
-                                        crate::plugin::fetch_channel_async(this.command_tx.clone());
-                                }
+                                this.show_plugins = !this.show_plugins;
                                 cx.notify();
                             })),
                     )

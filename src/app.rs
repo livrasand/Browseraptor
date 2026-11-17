@@ -11,12 +11,9 @@ pub enum AppCommand {
 
     OpenWith(String),
     RefreshBrowsers,
-    ShowPluginSearch,
     Quit,
 
     BrowsersDetected(Vec<crate::browser::Browser>),
-
-    ChannelFetched,
 }
 
 pub struct AppState {

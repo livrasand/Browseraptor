@@ -9,26 +9,6 @@ use serde::{Deserialize, Serialize};
 use crate::browser::Browser;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Repository {
-    pub name: String,
-    pub url: String,
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_repositories() -> Vec<Repository> {
-    vec![Repository {
-        name: "Official".to_string(),
-        url: crate::plugin::CHANNEL_URL.to_string(),
-        enabled: true,
-    }]
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub default_browser: Option<Browser>,
@@ -42,8 +22,6 @@ pub struct Config {
     pub hotkeys: HashMap<String, String>,
     #[serde(default)]
     pub installed_plugins: Vec<crate::plugin::InstalledPlugin>,
-    #[serde(default = "default_repositories")]
-    pub repositories: Vec<Repository>,
     /// Manually added browsers (name + .app path).
     #[serde(default)]
     pub custom_browsers: Vec<Browser>,
@@ -65,7 +43,6 @@ impl Default for Config {
             hotkeys: HashMap::new(),
             installed_plugins: vec![],
             custom_browsers: vec![],
-            repositories: default_repositories(),
         }
     }
 }

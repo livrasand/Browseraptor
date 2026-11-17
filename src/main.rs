@@ -389,9 +389,6 @@ fn run_daemon_with_url(initial_url: Option<String>) {
                                 let _ = crate::browser::launcher::launch(&b, "https://example.com");
                             }
                         }
-                        AppCommand::ShowPluginSearch => {
-                            let _ = tx.send(AppCommand::ShowSelector(None));
-                        }
                         AppCommand::RefreshBrowsers => {
                             tracing::info!("Refreshing browser list…");
                             // Spawn a background rescan and notify via BrowsersDetected.
@@ -413,9 +410,6 @@ fn run_daemon_with_url(initial_url: Option<String>) {
                                     .collect::<Vec<_>>()
                                     .join(", ")
                             );
-                        }
-                        AppCommand::ChannelFetched => {
-                            tracing::info!("Plugin channel fetched");
                         }
                         AppCommand::Quit => {
                             tracing::info!("Shutting down…");

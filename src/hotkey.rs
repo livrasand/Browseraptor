@@ -88,15 +88,6 @@ fn start_hotkey_listener_macos(tx: mpsc::Sender<AppCommand>) {
             },
             action: HotkeyAction::Quit,
         },
-        HotkeyBind {
-            key: "p",
-            mods: ModFlags {
-                shift: true,
-                ctrl: true,
-                ..Default::default()
-            },
-            action: HotkeyAction::ShowPluginSearch,
-        },
     ];
 
     let block: RcBlock<dyn Fn(NonNull<NSEvent>)> = RcBlock::new(move |event: NonNull<NSEvent>| {
@@ -150,7 +141,6 @@ fn handle_key_event_macos(
                 HotkeyAction::ShowSelector => AppCommand::ShowSelector(None),
 
                 HotkeyAction::RefreshBrowsers => AppCommand::RefreshBrowsers,
-                HotkeyAction::ShowPluginSearch => AppCommand::ShowPluginSearch,
                 HotkeyAction::Quit => AppCommand::Quit,
             };
             let _ = tx.send(cmd);
@@ -190,6 +180,5 @@ enum HotkeyAction {
     OpenBrowser(&'static str),
     ShowSelector,
     RefreshBrowsers,
-    ShowPluginSearch,
     Quit,
 }

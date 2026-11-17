@@ -272,7 +272,6 @@ fn parse_command(cmd_str: &str) -> Option<AppCommand> {
                 None
             }
         }
-        Some("show-plugin-search") => Some(AppCommand::ShowPluginSearch),
         Some("refresh-browsers") => Some(AppCommand::RefreshBrowsers),
         Some("quit") => Some(AppCommand::Quit),
         _ => None,
