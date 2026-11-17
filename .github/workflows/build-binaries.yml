@@ -16,7 +16,7 @@ on:
         type: boolean
         default: false
       tag:
-        description: "Tag del release (ej: v0.2.0). Solo se usa si publish-release es true. Si se omite, se toma de Cargo.toml"
+        description: "Tag del release (ej: v0.3.0). Solo se usa si publish-release es true. Si se omite, se toma de Cargo.toml"
         type: string
         default: ""
       prerelease:

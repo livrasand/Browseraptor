@@ -3,7 +3,7 @@ set -e
 
 APP_NAME="Browseraptor"
 BUNDLE_ID="com.browseraptor.Browseraptor"
-VERSION="0.2.0"
+VERSION="0.3.0"
 BINARY="target/release/browseraptor"
 APP_DIR="dist/${APP_NAME}.app"
 
