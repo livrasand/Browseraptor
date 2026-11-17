@@ -19,24 +19,6 @@ on:
         description: "Tag del release (ej: v0.2.0). Solo se usa si publish-release es true. Si se omite, se toma de Cargo.toml"
         type: string
         default: ""
-    secrets:
-      # Secrets opcionales — configúralos en el workflow que invoque si vas a firmar/notarizar
-      MAC_CERTIFICATE_BASE64:
-        required: false
-      MAC_CERTIFICATE_PASSWORD:
-        required: false
-      KEYCHAIN_PASSWORD:
-        required: false
-      APPLE_ID:
-        required: false
-      APPLE_TEAM_ID:
-        required: false
-      APPLE_APP_SPECIFIC_PASSWORD:
-        required: false
-      SENTRY_AUTH_TOKEN:
-        required: false
-      TEST_VERSION:
-        required: false
 
 jobs:
   build:
