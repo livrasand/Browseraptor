@@ -14,6 +14,10 @@ on:
         description: "Tag del release (ej: v0.3.0). Solo si publish-release es true"
         type: string
         default: ""
+      prerelease:
+        description: "Marcar el release como pre-release"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -23,3 +27,4 @@ jobs:
     with:
       publish-release: ${{ github.event_name == 'push' || inputs.publish-release }}
       tag: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+      prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease }}
