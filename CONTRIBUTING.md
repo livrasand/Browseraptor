@@ -1,211 +1,329 @@
-# Contributing to Browseraptor
+> For now, this guide is only in Spanish, but you can translate it and contribute.
 
-First off, thanks for taking the time to contribute!
+# Cómo ayudar en Browseraptor
 
-The following is a set of guidelines for contributing to Browseraptor. These are mostly guidelines, not rules. Use your best judgment, and feel free to propose changes to this document in a pull request.
+Gracias por querer ayudar en Browseraptor.
 
-## Table of Contents
+Este archivo explica cómo puedes ayudar, cómo probar el proyecto en tu computadora y cómo crear plugins. Está escrito con palabras simples. La idea es que también lo pueda entender alguien que está empezando a programar y que todavía no conoce Rust.
 
-- [Code of Conduct](#code-of-conduct)
-- [How to Contribute](#how-to-contribute)
-  - [Reporting Bugs](#reporting-bugs)
-  - [Suggesting Features](#suggesting-features)
-  - [Pull Requests](#pull-requests)
-- [Development Setup](#development-setup)
-  - [Prerequisites](#prerequisites)
-  - [Building](#building)
-  - [Running](#running)
-- [Project Structure](#project-structure)
-- [Creating a Plugin](#creating-a-plugin)
-  - [Plugin API](#plugin-api)
-  - [Plugin Manifest](#plugin-manifest)
-  - [Development Setup](#development-setup-1)
-  - [Installing a Local Plugin](#installing-a-local-plugin)
-  - [Translation Plugins](#translation-plugins)
-- [Coding Guidelines](#coding-guidelines)
-  - [Rust Style](#rust-style)
-  - [Commit Conventions](#commit-conventions)
-- [Workflows](#workflows)
+## Qué es Browseraptor
 
-## Code of Conduct
+Browseraptor es un programa que te ayuda a elegir con qué navegador abrir un enlace (link). Por ejemplo, puedes abrir unos enlaces con Chrome y otros con Firefox.
 
-This project adheres to the [Rust Code of Conduct](https://www.rust-lang.org/policies/code-of-conduct). By participating, you are expected to uphold it.
+## Índice
 
-## How to Contribute
+- [Código de conducta](#código-de-conducta)
+- [Cómo puedes ayudar](#cómo-puedes-ayudar)
+  - [Avisar de un error](#avisar-de-un-error)
+  - [Proponer una idea](#proponer-una-idea)
+  - [Enviar cambios](#enviar-cambios)
+- [Preparar tu computadora](#preparar-tu-computadora)
+  - [Qué necesitas instalar](#qué-necesitas-instalar)
+  - [Descargar el proyecto](#descargar-el-proyecto)
+  - [Compilar y ejecutar](#compilar-y-ejecutar)
+- [Cómo está organizado el proyecto](#cómo-está-organizado-el-proyecto)
+- [Plugins de Browseraptor](#plugins-de-browseraptor)
+  - [Qué es un plugin](#qué-es-un-plugin)
+  - [Qué puede hacer un plugin](#qué-puede-hacer-un-plugin)
+  - [Qué archivos necesita un plugin](#qué-archivos-necesita-un-plugin)
+  - [Cómo se comunica Browseraptor con un plugin](#cómo-se-comunica-browseraptor-con-un-plugin)
+  - [Respuesta del plugin al revisar un enlace](#respuesta-del-plugin-al-revisar-un-enlace)
+  - [Archivo manifest.json](#archivo-manifestjson)
+  - [Crear tu primer plugin paso a paso](#crear-tu-primer-plugin-paso-a-paso)
+  - [Compilar el plugin](#compilar-el-plugin)
+  - [Instalar un plugin en Browseraptor](#instalar-un-plugin-en-browseraptor)
+  - [Plugins con configuración](#plugins-con-configuración)
+  - [Plugins de traducción](#plugins-de-traducción)
+  - [Problemas comunes](#problemas-comunes)
+- [Reglas para el código](#reglas-para-el-código)
+- [Trabajos automáticos (Workflows)](#trabajos-automáticos-workflows)
 
-### Reporting Bugs
+## Código de conducta
 
-Before opening a bug report:
+Este proyecto sigue el [Código de conducta de Rust](https://www.rust-lang.org/policies/code-of-conduct). Al participar, se espera que seas respetuoso con los demás.
 
-- Check the [existing issues](https://github.com/livrasand/Browseraptor/issues) to see if the problem has already been reported.
-- Collect information about your environment: OS version, Rust version (`rustc --version`), and any relevant logs.
+## Cómo puedes ayudar
 
-When opening an issue, include:
+### Avisar de un error
 
-- A clear, descriptive title.
-- Steps to reproduce the behavior.
-- Expected vs. actual behavior.
-- Screenshots / screen recordings if applicable.
-- Your OS, architecture, and Browseraptor version.
+Antes de avisar de un error:
 
-### Suggesting Features
+- Revisa si alguien ya lo reportó en [Issues](https://github.com/livrasand/Browseraptor/issues).
+- Anota datos de tu computadora: sistema (Windows, macOS o Linux), versión del sistema y versión de Browseraptor.
 
-Feature requests are welcome. When suggesting a feature:
+Cuando abras un reporte, incluye:
 
-- Explain why it would be useful and how it fits into the project's scope.
-- If possible, sketch the API or configuration changes it would involve.
-- Be open to discussion and alternative approaches.
+- Un título claro.
+- Los pasos para ver el error (qué hiciste, en orden).
+- Qué esperabas que pasara y qué pasó en realidad.
+- Una foto o video de la pantalla, si ayuda.
+- Si viste algún mensaje de error, cópialo.
 
-### Pull Requests
+### Proponer una idea
 
-1. **Fork** the repository and create your branch from `master`.
-2. **Test** your changes: `cargo build --locked` and `cargo clippy` should pass without warnings.
-3. **Keep changes minimal** — focus on the specific issue or feature. Avoid unrelated refactors or formatting changes.
-4. **Update documentation** (doc comments, README) if your change affects the public interface or behavior.
-5. Open a pull request with a clear title and description linking to the related issue (if any).
+Si tienes una idea para mejorar Browseraptor:
 
-## Development Setup
+- Explica para qué serviría.
+- Explica cómo te imaginas que funcionaría.
+- Escucha otras ideas y comentarios.
 
-### Prerequisites
+### Enviar cambios
 
-- Rust **stable** toolchain (configured by `rust-toolchain.toml`)
+1. Haz una copia (fork) del repositorio y crea una rama desde `master`.
+2. Prueba tus cambios. Estos comandos deben funcionar sin problemas:
+   - `cargo build --locked`
+   - `cargo clippy`
+3. Cambia solo lo necesario para resolver el problema o agregar la mejora.
+4. Si tu cambio cambia cómo se usa algo, actualiza la documentación.
+5. Abre un pull request con un título y una descripción claros.
+
+## Preparar tu computadora
+
+### Qué necesitas instalar
+
+Browseraptor está hecho con **Rust**. Rust es un lenguaje de programación. Para trabajar con Rust necesitas una herramienta llamada **Cargo**. Cargo sirve para descargar lo que el proyecto necesita, compilarlo (convertir el código en un programa) y ejecutarlo.
+
+- Instala Rust estable (incluye Cargo):
 
 ```sh
 rustup toolchain install stable
 ```
 
-- **macOS:** Xcode (with Metal Toolchain) for local builds that compile `gpui`
-- **Linux:** System libraries (see [README](./README.md#linux))
-- **Windows:** Visual Studio Build Tools with the "Desktop development with C++" workload
+- **macOS:** instala Xcode (y Metal Toolchain) para poder compilar la app en tu Mac.
+- **Linux:** instala las librerías del sistema que pide el [README](./README.md#linux).
+- **Windows:** instala Visual Studio Build Tools con la opción "Desktop development with C++".
 
-### Building
+### Descargar el proyecto
 
 ```sh
 git clone https://github.com/livrasand/Browseraptor.git
 cd Browseraptor
+```
+
+### Compilar y ejecutar
+
+Compilar el proyecto:
+
+```sh
 cargo build --release
 ```
 
-To build the macOS `.app` bundle:
-
-```sh
-./bundle_macos.sh
-# Output: dist/Browseraptor.app
-```
-
-### Running
-
-Run the app:
+Ejecutar Browseraptor:
 
 ```sh
 cargo run
 ```
 
-Open a URL with the selector:
+Abrir un enlace con el selector:
 
 ```sh
 cargo run -- open https://example.com
 ```
 
-List installed browsers:
+Ver los navegadores que Browseraptor encontró en tu computadora:
 
 ```sh
 cargo run -- list
 ```
 
-## Project Structure
+Crear el paquete `.app` en macOS:
+
+```sh
+./bundle_macos.sh
+# Resultado: dist/Browseraptor.app
+```
+
+## Cómo está organizado el proyecto
+
+Estas son las carpetas y archivos más importantes:
 
 ```
 src/
-  main.rs               — Entry point, CLI argument parsing, daemon loop
-  app.rs                — AppCommand enum, shared types
-  tray.rs               — System tray / menu bar
-  hotkey.rs             — Global hotkey registration
-  single_instance.rs    — Single-instance enforcement via IPC
-  default_browser.rs    — Default browser detection
+  main.rs               — Punto de inicio del programa
+  app.rs                — Mensajes y tipos que usan varias partes
+  tray.rs               — Icono y menú en la barra del sistema
+  hotkey.rs             — Atajos de teclado
+  single_instance.rs    — Evita que se abran varias copias a la vez
+  default_browser.rs    — Revisa y cambia el navegador por defecto
 
   browser/
-    mod.rs              — Browser enum and shared types
-    detector.rs         — Scan the system for installed browsers
-    launcher.rs         — Launch URLs in a specific browser
+    mod.rs              — Tipos de navegadores
+    detector.rs         — Busca navegadores instalados
+    launcher.rs         — Abre enlaces en un navegador
 
   config/
-    mod.rs              — Config loading, saving, hotkeys, installed plugins
-    rules.rs            — URL routing rules
+    mod.rs              — Guarda y carga la configuración y los plugins instalados
+    rules.rs            — Reglas para decidir qué navegador usar
 
   plugin/
-    mod.rs              — Plugin system: local/dev loading, WASM host
+    mod.rs              — Sistema de plugins: cargar y ejecutar plugins locales
 
   ui/
-    mod.rs              — Module exports
-    selector.rs         — Browser selector window and plugin UI
-    default_prompt.rs   — "Set default browser" prompt
+    mod.rs              — Partes de la interfaz
+    selector.rs         — Ventana para elegir navegador y manejar plugins
+    default_prompt.rs   — Ventana para poner Browseraptor como navegador por defecto
 
 assets/
-  icons/                — SVG icons for the UI
-  os/                   — OS icons used in release notes
+  icons/                — Iconos de la interfaz
+  os/                   — Iconos usados en las descargas del release
   browseraptor-logo.png
   screenshot.png
 ```
 
-## Creating a Plugin
+## Plugins de Browseraptor
 
-Browseraptor plugins are WebAssembly (WASM) modules. Plugins run in a sandboxed WASM runtime and communicate with the host via exported functions and shared memory.
+Esta es la parte más importante si quieres crear un plugin.
 
-Plugins are installed locally (for example, development plugins). Each installed plugin must have a `.wasm` file and a `manifest.json` in the same directory.
+### Qué es un plugin
 
-### Plugin API
+Un plugin es como una pieza extra que le agrega una función a Browseraptor. No tienes que cambiar el código principal de Browseraptor para usarlo.
 
-Every plugin must export a `memory` section and the following functions:
+Un plugin de Browseraptor es un archivo especial llamado **WASM** (WebAssembly). Puedes pensarlo como un programita que corre dentro de una caja segura. Browseraptor le da información (por ejemplo, un enlace) y el plugin responde.
 
-```rust
-// Allocate `size` bytes in WASM linear memory, return a pointer.
-#[no_mangle]
-pub extern "C" fn alloc(size: i32) -> i32;
+Los plugins se instalan de forma local en tu computadora (por ejemplo, plugins que estás creando y probando). No hay una tienda ni un repositorio de plugins dentro de la app: tú eliges el archivo del plugin desde tu computadora.
 
-// Free `size` bytes at `ptr` in WASM linear memory.
-#[no_mangle]
-pub extern "C" fn dealloc(ptr: i32, size: i32);
+### Qué puede hacer un plugin
 
-// Evaluate a URL. Receives a pointer/length pair pointing to a UTF-8 URL string.
-// Returns a pointer to a result block: [4-byte LE length][JSON data].
-#[no_mangle]
-pub extern "C" fn evaluate(ptr: i32, len: i32) -> i32;
+Un plugin puede:
+
+- Decidir qué navegador debe abrir un enlace.
+- Elegir un perfil del navegador (si el navegador usa perfiles).
+- Cancelar la apertura de un enlace.
+- Tener una pantalla de configuración (si el plugin la ofrece).
+- Traducir los textos de la interfaz de Browseraptor.
+
+### Qué archivos necesita un plugin
+
+Cada plugin necesita dos archivos en la misma carpeta:
+
+1. **El archivo `.wasm`**: es el plugin ya compilado (listo para usar).
+2. **`manifest.json`**: es un archivo de texto con información del plugin (nombre, versión, etc.).
+
+Ejemplo de carpeta:
+
+```
+mi-plugin/
+  manifest.json
+  mi_plugin.wasm
 ```
 
-The `evaluate` function must return a JSON-serialized `PluginResult`:
+### Cómo se comunica Browseraptor con un plugin
+
+Browseraptor y el plugin se pasan datos usando la memoria del plugin. No te preocupes si esto suena raro: si usas el ejemplo de este documento, ya tendrás la base lista.
+
+Tu plugin debe incluir una sección de memoria (`memory`) y estas funciones obligatorias:
+
+| Función | Para qué sirve |
+| --- | --- |
+| `alloc(size)` | Pide un espacio en memoria de cierto tamaño. Devuelve dónde empieza ese espacio. |
+| `dealloc(ptr, size)` | Libera un espacio de memoria que ya no se usa. |
+| `evaluate(ptr, len)` | Browseraptor envía un enlace (URL) y el plugin responde qué hacer con ese enlace. |
+
+Cómo funciona `evaluate`:
+
+1. Browseraptor escribe el enlace como texto (UTF-8) en la memoria del plugin.
+2. Llama a `evaluate(ptr, len)`, donde `ptr` es la posición y `len` es el tamaño del texto.
+3. El plugin devuelve una posición en memoria con la respuesta.
+4. La respuesta tiene este formato: **4 bytes** con el tamaño + **los datos en JSON**.
+
+Ejemplo en Rust de las funciones obligatorias (puedes copiarlo como base):
 
 ```rust
-pub struct PluginResult {
-    pub browser: Option<String>,  // Browser name
-    pub profile: Option<String>,  // Browser profile
-    pub cancel: bool,             // If true, cancel navigation
+use serde::Serialize;
+use std::slice;
+use std::str;
+
+#[derive(Serialize)]
+struct PluginResult {
+    browser: Option<String>,
+    profile: Option<String>,
+    cancel: bool,
+}
+
+#[no_mangle]
+pub extern "C" fn alloc(size: i32) -> i32 {
+    let mut buf = Vec::<u8>::with_capacity(size as usize);
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    ptr as i32
+}
+
+#[no_mangle]
+pub extern "C" fn dealloc(ptr: i32, size: i32) {
+    unsafe {
+        let _ = Vec::from_raw_parts(ptr as *mut u8, 0, size as usize);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn evaluate(ptr: i32, len: i32) -> i32 {
+    let url = unsafe {
+        let bytes = slice::from_raw_parts(ptr as *const u8, len as usize);
+        str::from_utf8(bytes).unwrap_or("")
+    };
+
+    let result = PluginResult {
+        browser: None,
+        profile: None,
+        cancel: false,
+    };
+
+    write_json_result(&result)
+}
+
+fn write_json_result<T: Serialize>(value: &T) -> i32 {
+    let json = serde_json::to_vec(value).unwrap_or_else(|_| b"{}".to_vec());
+    let total_len = 4 + json.len();
+    let mut out = Vec::<u8>::with_capacity(total_len);
+    out.extend_from_slice(&(json.len() as i32).to_le_bytes());
+    out.extend_from_slice(&json);
+    let ptr = out.as_mut_ptr();
+    std::mem::forget(out);
+    ptr as i32
 }
 ```
 
-If `cancel` is `true`, navigation is blocked. If `browser` is `Some`, the URL is opened in that browser (optionally with a specific `profile`). If both `browser` and `cancel` are not used, the plugin passes and the next plugin or router handles the URL.
+### Respuesta del plugin al revisar un enlace
 
-#### Optional Exports
+La función `evaluate` debe devolver un JSON con esta forma:
 
-```rust
-// Return current configuration as a JSON string.
-#[no_mangle]
-pub extern "C" fn get_config() -> i32;
-
-// Receive new configuration (JSON string via pointer/length) and return a JSON response.
-#[no_mangle]
-pub extern "C" fn set_config(ptr: i32, len: i32) -> i32;
-
-// Return UI translations as a JSON object: { "key": "translated text" }.
-#[no_mangle]
-pub extern "C" fn get_ui_strings() -> i32;
+```json
+{
+  "browser": "Firefox",
+  "profile": "Work",
+  "cancel": false
+}
 ```
 
-`get_config` and `set_config` are used by the plugin configuration UI for local plugins. `get_ui_strings` is used for translation plugins.
+Qué significa cada campo:
 
-### Plugin Manifest
+- `browser`: nombre del navegador que debe abrir el enlace. Usa `null` si no quieres elegir navegador.
+- `profile`: perfil del navegador. Usa `null` si no aplica.
+- `cancel`: si es `true`, Browseraptor cancela la apertura del enlace.
 
-Every plugin must include a `manifest.json` in the same directory as its `.wasm` file:
+Ejemplos:
+
+- No hacer nada y dejar que Browseraptor decida:
+
+```json
+{ "browser": null, "profile": null, "cancel": false }
+```
+
+- Abrir en un navegador:
+
+```json
+{ "browser": "Google Chrome", "profile": null, "cancel": false }
+```
+
+- Bloquear el enlace:
+
+```json
+{ "browser": null, "profile": null, "cancel": true }
+```
+
+### Archivo manifest.json
+
+Cada plugin debe tener un `manifest.json` en la misma carpeta que el `.wasm`.
 
 ```json
 {
@@ -213,34 +331,42 @@ Every plugin must include a `manifest.json` in the same directory as its `.wasm`
   "name": "My Plugin",
   "version": "1.0.0",
   "author": "Your Name",
-  "description": "Routes work-related URLs to a specific browser"
+  "description": "Opens work links in a specific browser"
 }
 ```
 
-Browseraptor reads `id`, `name`, `version`, `author`, and `description` from the manifest.
+Campos:
 
-### Development Setup
+- `id`: identificador del plugin (usa letras, números y guiones, sin espacios).
+- `name`: nombre que se muestra.
+- `version`: versión del plugin (por ejemplo `1.0.0`).
+- `author`: quién lo hizo.
+- `description`: para qué sirve el plugin.
 
-We recommend writing plugins in Rust and compiling to `wasm32-unknown-unknown`.
+Browseraptor lee estos campos del manifest.
 
-**Prerequisites:**
+### Crear tu primer plugin paso a paso
+
+Este ejemplo hace un plugin simple: si el enlace contiene `github.com`, lo abre con Google Chrome. Si no, no hace nada.
+
+1. Instala la herramienta para compilar a WASM:
 
 ```sh
 rustup target add wasm32-unknown-unknown
 ```
 
-**Scaffold a new plugin:**
+2. Crea un proyecto nuevo de biblioteca (library):
 
 ```sh
-cargo init --lib my-plugin
-cd my-plugin
+cargo init --lib mi-plugin
+cd mi-plugin
 ```
 
-**`Cargo.toml`:**
+3. Cambia `Cargo.toml` para que quede así:
 
 ```toml
 [package]
-name = "my-plugin"
+name = "mi-plugin"
 version = "1.0.0"
 edition = "2021"
 
@@ -252,95 +378,213 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ```
 
-**Build:**
+4. Reemplaza el contenido de `src/lib.rs` con este código:
+
+```rust
+use serde::Serialize;
+use std::slice;
+use std::str;
+
+#[derive(Serialize)]
+struct PluginResult {
+    browser: Option<String>,
+    profile: Option<String>,
+    cancel: bool,
+}
+
+#[no_mangle]
+pub extern "C" fn alloc(size: i32) -> i32 {
+    let mut buf = Vec::<u8>::with_capacity(size as usize);
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    ptr as i32
+}
+
+#[no_mangle]
+pub extern "C" fn dealloc(ptr: i32, size: i32) {
+    unsafe {
+        let _ = Vec::from_raw_parts(ptr as *mut u8, 0, size as usize);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn evaluate(ptr: i32, len: i32) -> i32 {
+    let url = unsafe {
+        let bytes = slice::from_raw_parts(ptr as *const u8, len as usize);
+        str::from_utf8(bytes).unwrap_or("")
+    };
+
+    let result = if url.contains("github.com") {
+        PluginResult {
+            browser: Some("Google Chrome".to_string()),
+            profile: None,
+            cancel: false,
+        }
+    } else {
+        PluginResult {
+            browser: None,
+            profile: None,
+            cancel: false,
+        }
+    };
+
+    write_json_result(&result)
+}
+
+fn write_json_result<T: Serialize>(value: &T) -> i32 {
+    let json = serde_json::to_vec(value).unwrap_or_else(|_| b"{}".to_vec());
+    let total_len = 4 + json.len();
+    let mut out = Vec::<u8>::with_capacity(total_len);
+    out.extend_from_slice(&(json.len() as i32).to_le_bytes());
+    out.extend_from_slice(&json);
+    let ptr = out.as_mut_ptr();
+    std::mem::forget(out);
+    ptr as i32
+}
+```
+
+5. Crea un archivo `manifest.json` en la carpeta del plugin:
+
+```json
+{
+  "id": "mi-plugin",
+  "name": "Mi Plugin",
+  "version": "1.0.0",
+  "author": "Tu Nombre",
+  "description": "Abre enlaces de GitHub en Google Chrome"
+}
+```
+
+### Compilar el plugin
+
+Dentro de la carpeta de tu plugin, ejecuta:
 
 ```sh
 cargo build --release --target wasm32-unknown-unknown
-# Output: target/wasm32-unknown-unknown/release/my_plugin.wasm
 ```
 
-### Installing a Local Plugin
+Esto crea el archivo `.wasm` en:
 
-1. Build your plugin `.wasm` file and create a `manifest.json` in the same directory.
-2. Run Browseraptor and open the plugins panel.
-3. Click **+ Dev** and select the plugin `.wasm` file.
-4. Browseraptor validates the module and saves the plugin in the local configuration.
-5. If the plugin exports `get_config` and `set_config`, you can configure it from the UI.
-6. You can uninstall the plugin from the same panel.
+```
+target/wasm32-unknown-unknown/release/mi_plugin.wasm
+```
 
-### Translation Plugins
+(El nombre puede cambiar según el nombre de tu proyecto; los guiones suelen cambiar por guión bajo `_`.)
 
-A translation plugin changes UI text by exporting `get_ui_strings`.
+### Instalar un plugin en Browseraptor
 
-`get_ui_strings` must return a JSON object that maps translation keys to strings:
+1. Abre Browseraptor.
+2. Abre el panel de plugins.
+3. Haz clic en **+ Dev**.
+4. Elige el archivo `.wasm` de tu plugin.
+5. Browseraptor revisa que el plugin sea válido y lo guarda en la configuración local.
+6. Si quieres quitarlo, puedes desinstalarlo desde el mismo panel.
+
+Importante: el archivo `manifest.json` debe estar en la misma carpeta que el `.wasm` que seleccionas.
+
+### Plugins con configuración
+
+Si tu plugin necesita opciones (por ejemplo, reglas o un navegador por defecto), puede exportar estas funciones extra:
+
+| Función | Para qué sirve |
+| --- | --- |
+| `get_config()` | Devuelve la configuración actual del plugin en JSON. Browseraptor la usa para mostrar la pantalla de configuración. |
+| `set_config(ptr, len)` | Recibe una nueva configuración en JSON y devuelve una respuesta en JSON. |
+
+`get_config` debe devolver un JSON con la configuración. `set_config` debe devolver una respuesta así:
+
+- Si todo salió bien:
+
+```json
+{ "ok": true }
+```
+
+- Si hubo un problema:
+
+```json
+{ "ok": false, "error": "Mensaje del error" }
+```
+
+Si tu plugin exporta estas funciones y es un plugin local con archivo `.wasm`, Browseraptor puede mostrar el botón **Configure** para editar su configuración.
+
+### Plugins de traducción
+
+Un plugin de traducción cambia los textos de la interfaz de Browseraptor a otro idioma.
+
+Para hacer uno, el plugin debe exportar la función:
+
+| Función | Para qué sirve |
+| --- | --- |
+| `get_ui_strings()` | Devuelve un objeto JSON con las traducciones: clave y texto. |
+
+Ejemplo de lo que debe devolver:
 
 ```json
 {
   "plugins.title": "PLUGINS",
+  "plugins.empty": "No plugins installed yet.",
   "plugins.configure": "Configure",
   "plugins.save": "Save",
   "plugins.cancel": "Cancel"
 }
 ```
 
-Notes:
+Cómo funciona:
 
-- The function must follow the same result format as other plugin functions: return a pointer to `[4-byte LE length][JSON data]`.
-- Browseraptor loads UI translations on startup and after installing or uninstalling a plugin.
-- If a key is missing, Browseraptor uses the default English text.
-- The first installed local plugin that provides valid `get_ui_strings` data is used for UI translations.
+- Cada clave (por ejemplo `plugins.save`) es el nombre interno de un texto de la interfaz.
+- El valor es el texto que quieres mostrar.
+- Browseraptor carga las traducciones al iniciar y también cuando instalas o desinstalas un plugin.
+- Si una clave no está en el plugin, Browseraptor muestra el texto original en inglés.
+- Si hay varios plugins instalados, Browseraptor usa las traducciones del primer plugin local instalado que devuelva datos válidos de `get_ui_strings`.
 
-Common keys:
+Claves comunes que puedes traducir:
 
-- `plugins.title`, `plugins.empty`, `plugins.path`, `plugins.error`
-- `plugins.open_folder`, `plugins.configure`, `plugins.uninstall`
-- `plugins.configure_title`, `plugins.default_browser`, `plugins.default_profile`
-- `plugins.rules`, `plugins.domain`, `plugins.profile`, `plugins.select`, `plugins.select_browser`, `plugins.default`
-- `plugins.add_rule`, `plugins.copy`, `plugins.save`, `plugins.cancel`
-- `plugins.invalid_json`, `plugins.invalid_response`, `plugins.read_config_error`, `plugins.load_error`, `plugins.save_error`
+- Títulos y mensajes: `plugins.title`, `plugins.empty`, `plugins.path`, `plugins.error`
+- Botones y acciones: `plugins.open_folder`, `plugins.configure`, `plugins.uninstall`, `plugins.add_rule`, `plugins.copy`, `plugins.save`, `plugins.cancel`
+- Pantalla de configuración: `plugins.configure_title`, `plugins.default_browser`, `plugins.default_profile`, `plugins.rules`, `plugins.domain`, `plugins.profile`, `plugins.select`, `plugins.select_browser`, `plugins.default`
+- Errores: `plugins.invalid_json`, `plugins.invalid_response`, `plugins.read_config_error`, `plugins.load_error`, `plugins.save_error`
 
-## Coding Guidelines
+Consejo: puedes empezar traduciendo solo algunas claves y agregar más después.
 
-### Rust Style
+### Problemas comunes
 
-- Format with `rustfmt`.
-- Run `cargo clippy` before committing and address all warnings.
-- Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/).
-- Use `anyhow::Result` for fallible functions unless a specific error type is needed.
-- Prefer `gpui::SharedString` over `String` in UI-facing code.
-- Use `tracing` for logging (not `println!` or `eprintln!`).
-- Add doc comments (`///`) to public items when useful.
+- **No puedo instalar el plugin:** revisa que `manifest.json` esté en la misma carpeta que el archivo `.wasm`.
+- **No aparece el botón Configure:** tu plugin debe exportar `get_config` y `set_config`.
+- **La traducción no se ve:** revisa que el plugin exporte `get_ui_strings` y que devuelva un JSON válido con claves y textos.
+- **El plugin no hace lo que quiero con un enlace:** revisa el JSON que devuelve `evaluate` y que el nombre del navegador sea correcto.
+- **Compiló pero no encuentro el `.wasm`:** busca en `target/wasm32-unknown-unknown/release/`.
 
-### What to Avoid
+## Reglas para el código
 
-- Unnecessary dependencies. If the project already has what you need, reuse it.
-- Dead code. Remove unused functions, imports, and fields.
-- Hardcoded paths or values that should be configurable.
+Si vas a cambiar el código de Browseraptor (no solo crear un plugin):
 
-### Commit Conventions
-
-Use clear, imperative commit messages:
+- Usa `rustfmt` para dar formato al código.
+- Ejecuta `cargo clippy` y corrige las advertencias.
+- Evita agregar cosas que no se necesitan.
+- Borra código que ya no se use.
+- No pongas rutas o valores fijos si deberían poder cambiarse.
+- Para mensajes internos del programa se usa `tracing`, no `println!`.
+- Usa mensajes de commit claros, por ejemplo:
 
 ```
 feat: add browser icon cache for macOS
 fix: prevent crash when no browsers are detected
-refactor: extract hotkey parsing into its own module
-docs: update README with Windows build instructions
+docs: update plugin documentation
 ```
 
-Prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `style:`, `ci:`.
+Prefijos comunes: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `style:`, `ci:`.
 
-## Workflows
+## Trabajos automáticos (Workflows)
 
-This project uses GitHub Actions for CI. The workflows are defined in `.github/workflows/`:
+Este proyecto usa GitHub Actions. Los archivos están en `.github/workflows/`:
 
-- **`build-binaries.yml`** — reusable workflow that builds binaries for Linux, macOS, and Windows and can publish a GitHub release.
-- **`ci.yml`** — runs on tag pushes (`v*`) or manually via `workflow_dispatch`.
+- **`build-binaries.yml`**: compila Browseraptor para Linux, macOS y Windows y puede crear un release en GitHub.
+- **`ci.yml`**: se ejecuta cuando se sube una etiqueta `v*` o cuando se ejecuta manualmente.
 
-Manual runs can set `publish-release`, `tag`, and `prerelease`.
+Al ejecutarlo manualmente se pueden usar las opciones `publish-release`, `tag` y `prerelease`.
 
-When you open a pull request, ensure that:
+Antes de abrir un pull request, revisa que:
 
-- `cargo build --release --locked` succeeds on your target platform.
-- You have run `cargo clippy` and fixed any warnings.
-- Any new dependencies are justified in the commit message or PR description.
+- `cargo build --release --locked` funcione en tu sistema.
+- Hayas ejecutado `cargo clippy` y corregido las advertencias.
+- Si agregaste una dependencia nueva, expliques por qué es necesaria.
