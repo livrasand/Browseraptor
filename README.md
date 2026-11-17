@@ -130,6 +130,10 @@ Browseraptor runs as a lightweight background process. To stop or restart it:
 
 Contributions, issues, and feature requests are welcome! Check out [CONTRIBUTING.md](https://www.google.com/search?q=/CONTRIBUTING.md) to get started.
 
+You can use GitHub Codespaces for online development:
+
+[![][codespaces-shield]][codespaces-link]
+
 If you find Browseraptor useful, please **give it a ⭐ on GitHub** to help others discover it!
 
 [![Share](https://img.shields.io/badge/share-000000?logo=x&logoColor=white)](https://x.com/intent/tweet?text=Check%20out%20this%20project%20on%20GitHub:%20https://github.com/livrasand/Browseraptor)
@@ -146,3 +150,6 @@ If you find Browseraptor useful, please **give it a ⭐ on GitHub** to help othe
 *✨ Thanks for visiting **Browseraptor**!*
 
 <img src="https://visitor-badge.laobi.icu/badge?page_id=livrasand.Browseraptor&style=for-the-badge&color=00d4ff" alt="Views">
+
+[codespaces-link]: https://codespaces.new/livrasand/Browseraptor
+[codespaces-shield]: https://github.com/codespaces/badge.svg
