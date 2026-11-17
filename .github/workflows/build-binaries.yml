@@ -40,35 +40,31 @@ on:
 
 jobs:
   build:
-    name: Build distributables (Windows / macOS / Linux)
+    name: Build (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-22.04
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
 
     steps:
-      - name: Checkout (branch explícita)
-        if: ${{ inputs.checkout-latest == true }}
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ inputs.branch }}
-
-      - name: Checkout (default)
-        if: ${{ inputs.checkout-latest == false }}
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+          ref: ${{ inputs.checkout-latest && inputs.branch || '' }}
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          override: true
+        uses: dtolnay/rust-toolchain@nightly
 
-      - name: Build (Linux)
-        if: ${{ matrix.os == 'ubuntu-latest' }}
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           set -eux
           sudo apt-get update
@@ -92,75 +88,61 @@ jobs:
             libclang-dev \
             pkg-config
 
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -eux
           cargo build --release --locked
-
-          mkdir -p dist
-          # Copiar binario a la raíz de dist como archivo suelto
-          cp target/release/browseraptor dist/browseraptor
-          if [ -d assets ]; then cp -R assets dist/ || true; fi
-
-          # Empaquetar también una copia comprimida
-          cd dist && tar -czf ../Browseraptor-linux.tar.gz . && cd ..
+          mkdir -p out
+          cp target/release/browseraptor out/browseraptor
+          tar -czf out/Browseraptor-linux.tar.gz -C target/release browseraptor
 
       - name: Build (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        shell: powershell
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = 'Stop'
-
           cargo build --release --locked
-
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          $exe = Join-Path -Path "target\release" -ChildPath "browseraptor.exe"
-          Copy-Item -Path $exe -Destination (Join-Path -Path "dist" -ChildPath "browseraptor.exe") -Force
-          if (Test-Path -Path "assets") { Copy-Item -Path "assets\*" -Destination "dist" -Recurse -Force -ErrorAction SilentlyContinue }
-
-          $zipPath = Join-Path -Path "dist" -ChildPath "Browseraptor-windows.zip"
-          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-          Compress-Archive -Path (Join-Path -Path "dist" -ChildPath "*") -DestinationPath $zipPath -Force
+          New-Item -ItemType Directory -Path out -Force | Out-Null
+          Copy-Item target/release/browseraptor.exe out/browseraptor.exe -Force
+          Compress-Archive -Path target/release/browseraptor.exe -DestinationPath out/Browseraptor-windows.zip -Force
 
       - name: Build (macOS)
-        if: ${{ matrix.os == 'macos-latest' }}
+        if: runner.os == 'macOS'
         run: |
           set -eux
-          chmod +x ./bundle_macos.sh || true
+          chmod +x ./bundle_macos.sh
           ./bundle_macos.sh
-
-          # Empaquetar .app en zip para subir como artifact
-          mkdir -p dist
-          if [ -d "dist/Browseraptor.app" ]; then
-            ditto -c -k --sequesterRsrc --keepParent "dist/Browseraptor.app" "dist/Browseraptor-macos.zip"
-          fi
+          mkdir -p out
+          ditto -c -k --sequesterRsrc --keepParent dist/Browseraptor.app out/Browseraptor-macos.zip
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: browseraptor-${{ matrix.os == 'macos-latest' && 'macos' || matrix.os == 'windows-latest' && 'windows' || 'linux' }}-${{ github.sha }}
-          path: |
-            dist/Browseraptor-macos.zip
-            dist/Browseraptor-linux.tar.gz
-            dist/browseraptor
-            dist/Browseraptor-windows.zip
-            dist/browseraptor.exe
-            dist/Browseraptor.app
+          name: browseraptor-${{ matrix.platform }}
+          path: out/*
+          if-no-files-found: error
 
   release:
     name: Publish Release
     if: ${{ inputs.publish-release }}
-    needs: [build]
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.checkout-latest && inputs.branch || '' }}
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
 
       - name: Prepare release assets and checksums
         run: |
@@ -169,28 +151,23 @@ jobs:
           if [ -z "$VERSION" ]; then
             VERSION="v$(grep '^version = ' Cargo.toml | head -1 | cut -d '"' -f2)"
           fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
           mkdir -p release
-          # Copiar solo los archivos de distribucion (zip, tar.gz, binarios)
-          # Excluye los internos del .app bundle limitando profundidad
-          find artifacts -maxdepth 3 -type f \
+          find artifacts -maxdepth 2 -type f \
             \( -name "*.zip" -o -name "*.tar.gz" -o -name "browseraptor" -o -name "browseraptor.exe" \) \
             -exec cp {} release/ \;
+          test -n "$(find release -type f -print -quit)"
           cd release
-          echo ""
           echo "=== SHA256 checksums ==="
-          sha256sum * > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          sha256sum * | tee SHA256SUMS.txt
 
       - name: Create Release and upload assets
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eux
-          # Generar body desde RELEASE.md reemplazando version placeholder
           sed "s/1.0.0/${VERSION#v}/" RELEASE.md > /tmp/release-body.md
-
           gh release create "$VERSION" \
             --title "Browseraptor $VERSION" \
             --notes-file /tmp/release-body.md \
