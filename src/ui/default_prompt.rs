@@ -1,13 +1,13 @@
 use gpui::{
     div, prelude::*, px, rgb, size, App, Bounds, FontWeight, Render, TitlebarOptions,
-    Window, WindowBounds, WindowOptions,
+    Window, WindowBounds, WindowKind, WindowOptions,
 };
 
 pub struct DefaultBrowserPrompt;
 
 impl DefaultBrowserPrompt {
     pub fn show(cx: &mut App) {
-        let bounds = Bounds::centered(None, size(px(480.0), px(280.0)), cx);
+        let bounds = Bounds::centered(None, size(px(460.0), px(340.0)), cx);
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -16,6 +16,7 @@ impl DefaultBrowserPrompt {
                     appears_transparent: false,
                     traffic_light_position: None,
                 }),
+                kind: WindowKind::PopUp,
                 focus: true,
                 show: true,
                 ..Default::default()
@@ -39,8 +40,10 @@ impl Render for DefaultBrowserPrompt {
             .flex_col()
             .size_full()
             .bg(bg)
-            .p(px(32.0))
+            .p(px(28.0))
             .gap_4()
+            .items_center()
+            .child(gpui::img("assets/browseraptor-logo.png").size(px(64.0)))
             .child(
                 div()
                     .text_xl()
@@ -52,6 +55,7 @@ impl Render for DefaultBrowserPrompt {
                 div()
                     .text_base()
                     .text_color(text_secondary)
+                    .text_center()
                     .child("Browseraptor works best when set as your default browser."),
             )
             .child(div().flex_grow())
@@ -59,20 +63,21 @@ impl Render for DefaultBrowserPrompt {
                 div()
                     .flex()
                     .flex_row()
+                    .w_full()
                     .gap_3()
-                    .justify_end()
+                    .justify_center()
                     .child(
                         div()
                             .id("btn-skip")
-                            .px(px(16.0))
-                            .py(px(8.0))
+                            .px(px(18.0))
+                            .py(px(10.0))
                             .bg(surface)
-                            .rounded(px(6.0))
+                            .rounded(px(8.0))
                             .cursor_pointer()
                             .text_color(text_primary)
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .child("Skip")
+                            .child("Not now")
                             .on_click(cx.listener(|_this, _event, window, _cx| {
                                 window.remove_window();
                             })),
@@ -80,10 +85,10 @@ impl Render for DefaultBrowserPrompt {
                     .child(
                         div()
                             .id("btn-auto-set")
-                            .px(px(16.0))
-                            .py(px(8.0))
+                            .px(px(18.0))
+                            .py(px(10.0))
                             .bg(accent)
-                            .rounded(px(6.0))
+                            .rounded(px(8.0))
                             .cursor_pointer()
                             .text_color(rgb(0xff_ff_ff))
                             .text_sm()

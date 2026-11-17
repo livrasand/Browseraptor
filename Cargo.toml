@@ -3,8 +3,8 @@ name = "browseraptor"
 version = "0.2.0"
 edition = "2021"
 description = "A programmable browser selector — intercept links, route to the right browser."
-authors = ["Livrasand"]
-license = "MIT"
+authors = ["livrasand"]
+license = "MPL-2.0"
 repository = "https://github.com/livrasand/browseraptor"
 
 [dependencies]

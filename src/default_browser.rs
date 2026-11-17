@@ -51,15 +51,28 @@ fn set_as_default_browser_macos() -> Result<(), String> {
         let bundle: id = msg_send![class!(NSBundle), mainBundle];
         
         if bundle == nil {
-            return Err("Not running as an app bundle.".to_string());
+            let bundle_id = NSString::alloc(nil).init_str("com.browseraptor.Browseraptor");
+            let http_str = NSString::alloc(nil).init_str("http");
+            let https_str = NSString::alloc(nil).init_str("https");
+
+            let status_http = LSSetDefaultHandlerForURLScheme(http_str, bundle_id);
+            let status_https = LSSetDefaultHandlerForURLScheme(https_str, bundle_id);
+
+            return if status_http == 0 && status_https == 0 {
+                Ok(())
+            } else {
+                Err(format!("LaunchServices error: http={}, https={}", status_http, status_https))
+            };
         }
         
         #[allow(unexpected_cfgs)]
         let bundle_id: id = msg_send![bundle, bundleIdentifier];
-        
-        if bundle_id == nil {
-            return Err("App has no bundle identifier.".to_string());
-        }
+
+        let bundle_id = if bundle_id == nil {
+            NSString::alloc(nil).init_str("com.browseraptor.Browseraptor")
+        } else {
+            bundle_id
+        };
         
         let http_str = NSString::alloc(nil).init_str("http");
         let https_str = NSString::alloc(nil).init_str("https");

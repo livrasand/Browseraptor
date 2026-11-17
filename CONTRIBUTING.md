@@ -367,7 +367,7 @@ Once your plugin is published, submit it to the [default channel](https://github
        "url": "https://github.com/yourusername"
      },
      "version": "1.0.0",
-     "license": "MIT",
+     "license": "MPL-2.0",
      "categories": ["url-routing", "productivity"],
      "tags": ["work", "routing", "productivity"],
      "min_browseraptor_version": "0.2.0",

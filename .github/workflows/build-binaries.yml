@@ -61,7 +61,7 @@ jobs:
           ref: ${{ inputs.checkout-latest && inputs.branch || '' }}
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -115,7 +115,7 @@ jobs:
           chmod +x ./bundle_macos.sh
           ./bundle_macos.sh
           mkdir -p out
-          ditto -c -k --sequesterRsrc --keepParent dist/Browseraptor.app out/Browseraptor-macos.zip
+          ditto -c -k --keepParent dist/Browseraptor.app out/Browseraptor-macos.zip
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

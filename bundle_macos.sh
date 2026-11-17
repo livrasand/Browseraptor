@@ -107,6 +107,9 @@ sips -z 1024 1024 "${SRC}" --out "${ICONSET}/icon_512x512@2x.png" 2>/dev/null
 iconutil -c icns "${ICONSET}" -o "${APP_DIR}/Contents/Resources/AppIcon.icns"
 rm -rf "${ICONSET}"
 
+echo "==> Signing app bundle..."
+codesign --force --deep --sign - "${APP_DIR}"
+
 echo "==> Registering URL schemes with Launch Services..."
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
     -f "${PWD}/${APP_DIR}" 2>/dev/null || true
