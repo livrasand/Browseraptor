@@ -11,6 +11,19 @@
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://mozilla.org/MPL/2.0/)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-blue.svg)](#install)
 
+
+<a href="https://github.com/livrasand/Browseraptor/releases/download/v0.3.0/Browseraptor-0.3.0-windows-x64.zip">
+  <img src="./assets/os/windows.png"> Windows (x64)
+</a>
+<br>
+<a href="https://github.com/livrasand/Browseraptor/releases/download/v0.3.0/Browseraptor-0.3.0-linux-x64.tar.gz">
+  <img src="./assets/os/linux.png"> Linux (x64)
+</a>
+<br>
+<a href="https://github.com/livrasand/Browseraptor/releases/download/v0.3.0/Browseraptor-0.3.0-macos-arm64.zip">
+  <picture><source srcset="./assets/os/apple.png" media="(prefers-color-scheme: dark)" /> <img src="./assets/os/apple.svg" width="14" /></picture> macOS (arm64)
+</a>
+
 </div>
 
 ---
