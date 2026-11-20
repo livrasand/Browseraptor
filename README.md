@@ -59,9 +59,7 @@ Download pre-compiled binaries for your operating system from the latest release
 
 <a href="https://github.com/livrasand/Browseraptor/releases">
   <img src="https://raw.githubusercontent.com/rubenpgrady/get-it-on-github/refs/heads/main/get-it-on-github.png" alt="Get it on GitHub" height="96" />
-</a>
-
-<a href="https://github.com/livrasand/Browseraptor/releases">
+</a> <a href="updainium://add?url=https%3A%2F%2Fgithub.com%2Flivrasand%2FBrowseraptor">
   <img src="https://raw.githubusercontent.com/livrasand/Updainium/master/static/badge_updainium.png" alt="Add to Updainium" height="96" />
 </a>
 
